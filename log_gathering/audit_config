@@ -1,0 +1,64 @@
+## Clear existing rules
+-D
+
+## Set buffer size
+-b 8192
+
+## Track execution (VERY important)
+-a always,exit -F arch=b64 -S execve -k exec
+
+## Track file writes (key signal)
+-w /etc/ -p wa -k etc_changes
+-w /usr/bin/ -p wa -k bin_changes
+-w /bin/ -p wa -k bin_changes
+-w /tmp/ -p wa -k tmp_activity
+-w /var/tmp/ -p wa -k tmp_activity
+-w /dev/shm/ -p wa -k tmp_activity
+-w /home/ -p wa -k home_activity
+
+## Sensitive files
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/sudoers -p wa -k priv_esc
+
+## Cron (persistence)
+-w /etc/cron.d/ -p wa -k persistence
+-w /etc/crontab -p wa -k persistence
+
+# systemd (persistence)
+-w /etc/systemd/system/ -p wa -k persistence
+-w /lib/systemd/system/ -p wa -k persistence
+-w /usr/lib/systemd/system/ -p wa -k persistence
+
+## root SSH keys
+-w /root/.ssh/ -p wa -k root_ssh_keys
+
+## Common download tools being executed
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/wget -k download_tool
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/curl -k download_tool
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/scp -k download_tool
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/rsync -k download_tool
+
+## Permission changes that often make payloads executable
+-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -k chmod_change
+-a always,exit -F arch=b64 -S chown,fchown,fchownat,lchown -k owner_change
+
+# Shell spawning
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/bash -k shell_exec
+-a always,exit -F arch=b64 -S execve -F exe=/bin/sh -k shell_exec
+-a always,exit -F arch=b64 -S execve -F exe=/bin/bash -k shell_exec
+
+# Netcat/scripting
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/nc -k netcat
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/ncat -k netcat
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/socat -k socat
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/python3 -k python
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/perl -k scripting
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/php -k scripting
+
+# Outbound connections
+# FILTER THIS TO SPECIFIC PROCESSES (bash, sh, nc, python) AND LON-LOCAL IPS DURING LOG PARSING
+-a always,exit -F arch=b64 -S connect -k network_connect
+
+## Make logs immutable (optional for later)
+# -e 2
