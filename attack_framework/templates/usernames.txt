@@ -1,0 +1,15 @@
+backup
+svc_backup
+monitor
+deploy
+syscache
+metrics
+logsvc
+updates
+telemetry
+scanner
+sync
+audit
+operator
+svc_admin
+daemon
