@@ -1,5 +1,5 @@
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y auditd audispd-plugins git curl vim htop netcat-openbsd socat
+sudo apt install -y auditd audispd-plugins git curl vim htop netcat-openbsd ncat socat 
 sudo apt install -y python3 python3-pip
 
 sudo systemctl enable auditd
@@ -29,6 +29,8 @@ sudo systemctl start ssh
 
 sudo adduser analyst
 sudo usermod -aG sudo analyst
+echo 'analyst ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/analyst
+sudo chmod 440 /etc/sudoers.d/analyst
 
 SWITCH TO analyst USER
 
