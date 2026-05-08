@@ -113,6 +113,10 @@ for STEP in "${STEPS[@]}"; do
         STEP_TARGET="${TARGET#*@}"
     fi
 
+    if [[ "$DELIVERY" == "root_session" ]]; then
+        STEP_TARGET="${TARGET#*@}"
+    fi
+
     # Give each bind-shell step its own port to avoid collisions.
     if [[ "$DELIVERY" == bind_shell/* ]]; then
         export LPORT="$((4444 + STEP_INDEX))"
@@ -125,10 +129,42 @@ for STEP in "${STEPS[@]}"; do
         fail "sudoers_mod requires TARGET_USER/USERNAME, but no user was exported by previous chain step"
     fi
 
-    "$FRAMEWORK_ROOT/run_attack.sh" \
-        "$STEP_TARGET" \
-        "$DELIVERY" \
-        "$PAYLOAD"
+    if [[ "$DELIVERY" == "root_session" ]]; then
+        [[ -n "${AEGIS_SHELL_SESSION_INPUT:-}" ]] ||
+            fail "root_session delivery requires AEGIS_SHELL_SESSION_INPUT from a previous step"
+
+        [[ -n "${AEGIS_SHELL_SESSION_TRANSCRIPT:-}" ]] ||
+            fail "root_session delivery requires AEGIS_SHELL_SESSION_TRANSCRIPT from a previous step"
+    fi
+
+    STEP_ENV_ASSIGNMENTS=()
+    STEP_ENV_ARRAY="STEP_${STEP_INDEX}_ENV"
+
+    if declare -p "$STEP_ENV_ARRAY" >/dev/null 2>&1; then
+        declare -n STEP_ENV_REF="$STEP_ENV_ARRAY"
+        STEP_ENV_ASSIGNMENTS=("${STEP_ENV_REF[@]}")
+        unset -n STEP_ENV_REF
+    fi
+
+    if [[ "${#STEP_ENV_ASSIGNMENTS[@]}" -gt 0 ]]; then
+        for STEP_ENV_ASSIGNMENT in "${STEP_ENV_ASSIGNMENTS[@]}"; do
+            [[ "$STEP_ENV_ASSIGNMENT" == *=* ]] ||
+                fail "$STEP_ENV_ARRAY entries must be KEY=value: $STEP_ENV_ASSIGNMENT"
+
+            record_metadata "step_${STEP_INDEX}_env=$STEP_ENV_ASSIGNMENT"
+        done
+
+        env "${STEP_ENV_ASSIGNMENTS[@]}" \
+            "$FRAMEWORK_ROOT/run_attack.sh" \
+            "$STEP_TARGET" \
+            "$DELIVERY" \
+            "$PAYLOAD"
+    else
+        "$FRAMEWORK_ROOT/run_attack.sh" \
+            "$STEP_TARGET" \
+            "$DELIVERY" \
+            "$PAYLOAD"
+    fi
 
     LAST_RUN_DIR="$(
         find "$FRAMEWORK_ROOT/runs" \
@@ -152,6 +188,12 @@ for STEP in "${STEPS[@]}"; do
 
     CREATED_USER=""
     CREATED_PASSWORD=""
+    SHELL_SESSION_TYPE=""
+    SHELL_SESSION_USER=""
+    SHELL_SESSION_INPUT=""
+    SHELL_SESSION_TRANSCRIPT=""
+    SHELL_SESSION_PID_FILE=""
+    SHELL_SESSION_ACTIVE=""
 
     if [[ -f "$LAST_METADATA" ]]; then
 
@@ -167,8 +209,45 @@ for STEP in "${STEPS[@]}"; do
                 cut -d= -f2- || true
         )"
 
+        SHELL_SESSION_TYPE="$(
+            grep '^shell_session_type=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        SHELL_SESSION_USER="$(
+            grep '^shell_session_user=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        SHELL_SESSION_INPUT="$(
+            grep '^shell_session_input=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        SHELL_SESSION_TRANSCRIPT="$(
+            grep '^shell_session_transcript=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        SHELL_SESSION_PID_FILE="$(
+            grep '^shell_session_pid_file=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        SHELL_SESSION_ACTIVE="$(
+            grep '^shell_session_active=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
         log "Parsed user from metadata: ${CREATED_USER:-unset}"
         log "Parsed password from metadata: ${CREATED_PASSWORD:+set}"
+        log "Parsed shell session from metadata: ${SHELL_SESSION_TYPE:-unset}"
 
         if [[ -n "$CREATED_USER" ]]; then
             export USERNAME="$CREATED_USER"
@@ -180,6 +259,21 @@ for STEP in "${STEPS[@]}"; do
         if [[ -n "$CREATED_PASSWORD" ]]; then
             export PASSWORD="$CREATED_PASSWORD"
             record_metadata "exported_password=$CREATED_PASSWORD"
+        fi
+
+        if [[ -n "$SHELL_SESSION_TYPE" && -n "$SHELL_SESSION_INPUT" && -n "$SHELL_SESSION_TRANSCRIPT" ]]; then
+            export AEGIS_SHELL_SESSION_TYPE="$SHELL_SESSION_TYPE"
+            export AEGIS_SHELL_SESSION_USER="${SHELL_SESSION_USER:-root}"
+            export AEGIS_SHELL_SESSION_INPUT="$SHELL_SESSION_INPUT"
+            export AEGIS_SHELL_SESSION_TRANSCRIPT="$SHELL_SESSION_TRANSCRIPT"
+            export AEGIS_SHELL_SESSION_PID_FILE="$SHELL_SESSION_PID_FILE"
+            export AEGIS_SHELL_SESSION_ACTIVE="${SHELL_SESSION_ACTIVE:-unknown}"
+
+            record_metadata "exported_shell_session_type=$AEGIS_SHELL_SESSION_TYPE"
+            record_metadata "exported_shell_session_user=$AEGIS_SHELL_SESSION_USER"
+            record_metadata "exported_shell_session_input=$AEGIS_SHELL_SESSION_INPUT"
+            record_metadata "exported_shell_session_transcript=$AEGIS_SHELL_SESSION_TRANSCRIPT"
+            record_metadata "exported_shell_session_active=$AEGIS_SHELL_SESSION_ACTIVE"
         fi
 
     fi

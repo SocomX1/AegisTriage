@@ -164,7 +164,6 @@ esac
 
 TMP_KEY_FILE="$(mktemp)"
 
-printf '# aegis_framework_key\n' > "$TMP_KEY_FILE"
 printf '%s\n' "$AUTH_KEY" >> "$TMP_KEY_FILE"
 
 log "Installing authorized_keys entry"

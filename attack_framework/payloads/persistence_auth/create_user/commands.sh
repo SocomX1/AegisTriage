@@ -70,7 +70,7 @@ log "Creating user: $USERNAME"
 
 run_priv "useradd $HOME_FLAG -s '$LOGIN_SHELL' '$USERNAME'"
 
-log "Setting password"
+log "Setting password: $PASSWORD"
 
 run_priv "echo '$USERNAME:$PASSWORD' | chpasswd"
 

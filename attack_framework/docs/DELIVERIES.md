@@ -16,6 +16,14 @@ Uploads a staged payload before execution.
 
 Reconnects using a previously established account.
 
+### root_session
+
+Feeds bundled payload commands into a preserved shell session published by a
+previous payload through `shell_session_*` metadata.
+
+Current support is FIFO-backed sessions, such as the session established by
+`priv_esc/root_dirtyfrag`.
+
 ### reverse_shell
 
 Target connects back to controller.

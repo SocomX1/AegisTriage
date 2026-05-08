@@ -20,6 +20,17 @@ STEPS=(
 )
 ```
 
+Preserved shell sessions can be reused by later steps with `root_session` after
+an earlier payload records `shell_session_*` metadata:
+
+```bash
+STEPS=(
+    "ssh_stdin:persistence_auth/create_user"
+    "ssh_auth:priv_esc/root_dirtyfrag"
+    "root_session:recon/basic_enum"
+)
+```
+
 ## Current Chains
 
 ### reverse_to_ssh_vandalism
