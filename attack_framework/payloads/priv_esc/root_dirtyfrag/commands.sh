@@ -60,6 +60,7 @@ record_metadata "shell_session_user=root"
 record_metadata "shell_session_input=$DIRTYFRAG_SESSION_FIFO"
 record_metadata "shell_session_transcript=$DIRTYFRAG_SESSION_TRANSCRIPT"
 record_metadata "shell_session_pid_file=$DIRTYFRAG_SESSION_PID_FILE"
+record_metadata "shell_session_workdir=$DIRTYFRAG_WORKDIR"
 
 log "Cloning DirtyFrag proof-of-concept"
 cd "$DIRTYFRAG_WORKDIR"

@@ -24,6 +24,11 @@ previous payload through `shell_session_*` metadata.
 Current support is FIFO-backed sessions, such as the session established by
 `priv_esc/root_dirtyfrag`.
 
+### suid_exec
+
+Executes bundled payloads through a SUID bash root execution primitive
+published by a previous payload through `root_exec_*` metadata.
+
 ### reverse_shell
 
 Target connects back to controller.

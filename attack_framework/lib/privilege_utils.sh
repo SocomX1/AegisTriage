@@ -41,6 +41,10 @@ require_privilege() {
         ;;
 
     sudo)
+        if is_root; then
+            return 0
+        fi
+
         has_sudo || {
             error "Payload requires sudo, but sudo is not installed"
             return 1
@@ -76,7 +80,11 @@ run_priv() {
         ;;
 
     sudo)
-        sudo -n -- bash -lc "$command_string" </dev/null
+        if is_root; then
+            bash -lc "$command_string"
+        else
+            sudo -n -- bash -lc "$command_string" </dev/null
+        fi
         ;;
 
     root)
