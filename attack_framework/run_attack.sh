@@ -688,6 +688,16 @@ root_session)
     scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
     scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
 
+    q_remote_metadata_txt="$(shell_quote "$REMOTE_METADATA_TXT")"
+    q_remote_metadata_json="$(shell_quote "$REMOTE_METADATA_JSON")"
+
+    {
+        printf 'rm -f -- %s %s\n' \
+            "$q_remote_metadata_txt" \
+            "$q_remote_metadata_json"
+    } | ssh_remote_command "$TARGET" "cat > $q_session_input" || \
+        warn "Failed to remove root-session remote metadata through preserved shell"
+
     add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
     add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
 

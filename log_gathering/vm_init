@@ -2,6 +2,10 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y auditd audispd-plugins git curl vim htop netcat-openbsd ncat socat 
 sudo apt install -y python3 python3-pip
 
+sudo mv /etc/modprobe.d/disable-algif_aead.conf /etc/modprobe.d/disable-algif_aead.conf.disabled
+sudo modprobe algif_aead
+lsmod | grep algif_aead
+
 sudo systemctl enable auditd
 sudo systemctl start auditd
 sudo systemctl status auditd

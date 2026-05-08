@@ -47,6 +47,151 @@ normalize_chain_name() {
     printf '%s\n' "$chain"
 }
 
+shell_quote() {
+    printf "%q" "$1"
+}
+
+chain_ssh_command() {
+    local target="$1"
+    local command="$2"
+
+    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+        chain_ssh_command_as "$target" "$command" "$USERNAME" "$PASSWORD"
+    else
+        ssh "$target" "$command"
+    fi
+}
+
+chain_ssh_command_as() {
+    local target="$1"
+    local command="$2"
+    local username="$3"
+    local password="$4"
+
+    if [[ -n "$username" && -n "$password" ]]; then
+        sshpass -p "$password" \
+            ssh -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$username@$target" \
+            "$command"
+    else
+        ssh "$target" "$command"
+    fi
+}
+
+DEFERRED_SHELL_SESSION_INPUTS=()
+DEFERRED_SHELL_SESSION_TRANSCRIPTS=()
+DEFERRED_SHELL_SESSION_WORKDIRS=()
+DEFERRED_SHELL_SESSION_PIDS=()
+DEFERRED_SHELL_SESSION_STEPS=()
+DEFERRED_SHELL_SESSION_AUTH_USERS=()
+DEFERRED_SHELL_SESSION_AUTH_PASSWORDS=()
+DEFERRED_CLEANUP_RAN="false"
+
+queue_deferred_shell_session_cleanup() {
+    local step_index="$1"
+    local session_input="$2"
+    local session_transcript="$3"
+    local session_workdir="$4"
+    local session_pid="$5"
+
+    [[ "${CHAIN_DEFER_SHELL_SESSION_CLEANUP:-true}" == "true" ]] || return 0
+    [[ -n "$session_input" && -n "$session_transcript" && -n "$session_workdir" ]] || return 0
+
+    case "$session_workdir" in
+        /tmp/aegis_dirtyfrag_* | /var/tmp/aegis_dirtyfrag_* | /dev/shm/aegis_dirtyfrag_*)
+            ;;
+        *)
+            warn "Refusing deferred cleanup for unsafe shell session workdir: $session_workdir"
+            return 0
+            ;;
+    esac
+
+    DEFERRED_SHELL_SESSION_INPUTS+=("$session_input")
+    DEFERRED_SHELL_SESSION_TRANSCRIPTS+=("$session_transcript")
+    DEFERRED_SHELL_SESSION_WORKDIRS+=("$session_workdir")
+    DEFERRED_SHELL_SESSION_PIDS+=("$session_pid")
+    DEFERRED_SHELL_SESSION_STEPS+=("$step_index")
+    DEFERRED_SHELL_SESSION_AUTH_USERS+=("${USERNAME:-}")
+    DEFERRED_SHELL_SESSION_AUTH_PASSWORDS+=("${PASSWORD:-}")
+
+    record_metadata "deferred_cleanup_step=$step_index"
+    record_metadata "deferred_cleanup_workdir=$session_workdir"
+}
+
+run_deferred_chain_cleanup() {
+    [[ "$DEFERRED_CLEANUP_RAN" == "false" ]] || return 0
+    DEFERRED_CLEANUP_RAN="true"
+
+    [[ "${CHAIN_DEFER_SHELL_SESSION_CLEANUP:-true}" == "true" ]] || return 0
+    [[ "${#DEFERRED_SHELL_SESSION_INPUTS[@]}" -gt 0 ]] || return 0
+
+    local target_host="${TARGET#*@}"
+    local idx
+
+    for ((idx = ${#DEFERRED_SHELL_SESSION_INPUTS[@]} - 1; idx >= 0; idx--)); do
+        local session_input="${DEFERRED_SHELL_SESSION_INPUTS[$idx]}"
+        local session_transcript="${DEFERRED_SHELL_SESSION_TRANSCRIPTS[$idx]}"
+        local session_workdir="${DEFERRED_SHELL_SESSION_WORKDIRS[$idx]}"
+        local session_pid="${DEFERRED_SHELL_SESSION_PIDS[$idx]}"
+        local step_index="${DEFERRED_SHELL_SESSION_STEPS[$idx]}"
+        local auth_user="${DEFERRED_SHELL_SESSION_AUTH_USERS[$idx]}"
+        local auth_password="${DEFERRED_SHELL_SESSION_AUTH_PASSWORDS[$idx]}"
+        local marker="__AEGIS_CHAIN_DEFERRED_CLEANUP_${CHAIN_ID}_${step_index}__"
+        local cleanup_commands="$CHAIN_DIR/deferred_cleanup_step_${step_index}.sh"
+        local q_session_input
+        local q_session_transcript
+        local q_marker
+        local q_session_workdir
+
+        q_session_input="$(shell_quote "$session_input")"
+        q_session_transcript="$(shell_quote "$session_transcript")"
+        q_marker="$(shell_quote "$marker")"
+        q_session_workdir="$(shell_quote "$session_workdir")"
+
+        log "Deferred cleanup for shell session from step $step_index"
+        log "Shell session workdir: $session_workdir"
+
+        if ! chain_ssh_command_as "$target_host" "test -p $q_session_input" "$auth_user" "$auth_password"; then
+            warn "Shell session FIFO is not available for deferred cleanup: $session_input"
+            continue
+        fi
+
+        printf 'echo %s\n' "$q_marker" > "$cleanup_commands"
+        chain_ssh_command_as "$target_host" "cat > $q_session_input" "$auth_user" "$auth_password" < "$cleanup_commands" || {
+            warn "Failed to send deferred cleanup readiness marker for step $step_index"
+            continue
+        }
+
+        local deadline=$((SECONDS + 15))
+        while (( SECONDS < deadline )); do
+            if chain_ssh_command_as "$target_host" "grep -q -- $q_marker $q_session_transcript" "$auth_user" "$auth_password" >/dev/null 2>&1; then
+                break
+            fi
+            sleep 1
+        done
+
+        if ! chain_ssh_command_as "$target_host" "grep -q -- $q_marker $q_session_transcript" "$auth_user" "$auth_password" >/dev/null 2>&1; then
+            warn "Deferred cleanup marker did not appear for step $step_index"
+            continue
+        fi
+
+        {
+            printf 'rm -rf -- %s\n' "$q_session_workdir"
+            if [[ -n "$session_pid" ]]; then
+                printf 'kill -- -%s >/dev/null 2>&1 || true\n' "$session_pid"
+                printf 'kill %s >/dev/null 2>&1 || true\n' "$session_pid"
+            fi
+        } > "$cleanup_commands"
+
+        chain_ssh_command_as "$target_host" "cat > $q_session_input" "$auth_user" "$auth_password" < "$cleanup_commands" || \
+            warn "Failed to send deferred cleanup commands for step $step_index"
+
+        record_metadata "deferred_cleanup_completed_step=$step_index"
+    done
+}
+
 TARGET="${1:-}"
 CHAIN_NAME="${2:-}"
 
@@ -84,6 +229,12 @@ record_metadata "chain_id=$CHAIN_ID"
 record_metadata "chain_name=$CHAIN_NAME"
 record_metadata "target=$TARGET"
 record_metadata "started_at=$(date -Is)"
+record_metadata "defer_shell_session_cleanup=${CHAIN_DEFER_SHELL_SESSION_CLEANUP:-true}"
+
+trap '
+run_deferred_chain_cleanup || true
+record_metadata "finished_at=$(date -Is)"
+' EXIT
 
 log "Chain ID: $CHAIN_ID"
 log "Executing chain: $CHAIN_NAME"
@@ -188,17 +339,26 @@ for STEP in "${STEPS[@]}"; do
 
     CREATED_USER=""
     CREATED_PASSWORD=""
+    METADATA_TARGET_USER=""
     SHELL_SESSION_TYPE=""
     SHELL_SESSION_USER=""
     SHELL_SESSION_INPUT=""
     SHELL_SESSION_TRANSCRIPT=""
     SHELL_SESSION_PID_FILE=""
+    SHELL_SESSION_PID=""
     SHELL_SESSION_ACTIVE=""
+    SHELL_SESSION_WORKDIR=""
 
     if [[ -f "$LAST_METADATA" ]]; then
 
         CREATED_USER="$(
-            grep -E '^(created_user|target_user|username|user)=' "$LAST_METADATA" |
+            grep '^created_user=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        METADATA_TARGET_USER="$(
+            grep -E '^(target_user|username|user)=' "$LAST_METADATA" |
                 tail -n 1 |
                 cut -d= -f2- || true
         )"
@@ -239,13 +399,25 @@ for STEP in "${STEPS[@]}"; do
                 cut -d= -f2- || true
         )"
 
+        SHELL_SESSION_PID="$(
+            grep '^shell_session_pid=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
         SHELL_SESSION_ACTIVE="$(
             grep '^shell_session_active=' "$LAST_METADATA" |
                 tail -n 1 |
                 cut -d= -f2- || true
         )"
 
-        log "Parsed user from metadata: ${CREATED_USER:-unset}"
+        SHELL_SESSION_WORKDIR="$(
+            grep '^dirtyfrag_workdir=' "$LAST_METADATA" |
+                tail -n 1 |
+                cut -d= -f2- || true
+        )"
+
+        log "Parsed user from metadata: ${CREATED_USER:-${METADATA_TARGET_USER:-unset}}"
         log "Parsed password from metadata: ${CREATED_PASSWORD:+set}"
         log "Parsed shell session from metadata: ${SHELL_SESSION_TYPE:-unset}"
 
@@ -254,6 +426,11 @@ for STEP in "${STEPS[@]}"; do
             export TARGET_USER="$CREATED_USER"
             record_metadata "exported_username=$CREATED_USER"
             record_metadata "exported_target_user=$CREATED_USER"
+        fi
+
+        if [[ -z "$CREATED_USER" && -n "$METADATA_TARGET_USER" ]]; then
+            export TARGET_USER="$METADATA_TARGET_USER"
+            record_metadata "exported_target_user=$METADATA_TARGET_USER"
         fi
 
         if [[ -n "$CREATED_PASSWORD" ]]; then
@@ -274,6 +451,13 @@ for STEP in "${STEPS[@]}"; do
             record_metadata "exported_shell_session_input=$AEGIS_SHELL_SESSION_INPUT"
             record_metadata "exported_shell_session_transcript=$AEGIS_SHELL_SESSION_TRANSCRIPT"
             record_metadata "exported_shell_session_active=$AEGIS_SHELL_SESSION_ACTIVE"
+
+            queue_deferred_shell_session_cleanup \
+                "$STEP_INDEX" \
+                "$SHELL_SESSION_INPUT" \
+                "$SHELL_SESSION_TRANSCRIPT" \
+                "$SHELL_SESSION_WORKDIR" \
+                "$SHELL_SESSION_PID"
         fi
 
     fi
@@ -290,7 +474,7 @@ for STEP in "${STEPS[@]}"; do
 
 done
 
-record_metadata "finished_at=$(date -Is)"
+run_deferred_chain_cleanup
 record_metadata "success=true"
 
 log "Chain complete"

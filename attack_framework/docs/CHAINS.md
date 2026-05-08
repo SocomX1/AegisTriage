@@ -31,6 +31,10 @@ STEPS=(
 )
 ```
 
+For FIFO-backed preserved sessions, `run_chain.sh` can defer cleanup until the
+chain exits. Set `CHAIN_DEFER_SHELL_SESSION_CLEANUP="false"` in a chain config
+to leave session artifacts in place for inspection.
+
 ## Current Chains
 
 ### reverse_to_ssh_vandalism
