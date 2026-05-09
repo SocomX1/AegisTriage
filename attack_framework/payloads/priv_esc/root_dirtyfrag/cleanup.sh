@@ -38,7 +38,9 @@ DIRTYFRAG_SESSION_PID="$(
     fail "Could not determine dirtyfrag_workdir from metadata"
 
 case "$DIRTYFRAG_WORKDIR" in
-    /tmp/aegis_dirtyfrag_* | /var/tmp/aegis_dirtyfrag_* | /dev/shm/aegis_dirtyfrag_*)
+    /tmp/aegis_dirtyfrag_* | /var/tmp/aegis_dirtyfrag_* | /dev/shm/aegis_dirtyfrag_* | \
+    /tmp/.cache/aegis_dirtyfrag_* | /tmp/.config/aegis_dirtyfrag_* | \
+    /var/tmp/.system/aegis_dirtyfrag_* | /dev/shm/.runtime/aegis_dirtyfrag_*)
         ;;
     *)
         fail "Refusing unsafe DirtyFrag cleanup path: $DIRTYFRAG_WORKDIR"

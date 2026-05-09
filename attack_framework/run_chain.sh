@@ -90,7 +90,7 @@ chain_ssh_command_as() {
             ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR \
-            "$username@$target" \
+            "$username@${target#*@}" \
             "$command"
     else
         ssh "$target" "$command"
@@ -198,7 +198,11 @@ queue_deferred_shell_session_cleanup() {
 
     case "$session_workdir" in
         /tmp/aegis_dirtyfrag_* | /var/tmp/aegis_dirtyfrag_* | /dev/shm/aegis_dirtyfrag_* | \
-        /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_*)
+        /tmp/.cache/aegis_dirtyfrag_* | /tmp/.config/aegis_dirtyfrag_* | \
+        /var/tmp/.system/aegis_dirtyfrag_* | /dev/shm/.runtime/aegis_dirtyfrag_* | \
+        /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_* | \
+        /tmp/.cache/aegis_copyfail_* | /tmp/.config/aegis_copyfail_* | \
+        /var/tmp/.system/aegis_copyfail_* | /dev/shm/.runtime/aegis_copyfail_*)
             ;;
         *)
             warn "Refusing deferred cleanup for unsafe shell session workdir: $session_workdir"
@@ -571,7 +575,7 @@ for STEP in "${STEPS[@]}"; do
             record_metadata "exported_target_user=$CREATED_USER"
         fi
 
-        if [[ -z "$CREATED_USER" && -n "$METADATA_TARGET_USER" ]]; then
+        if [[ -z "$CREATED_USER" && -n "$METADATA_TARGET_USER" && ( "$METADATA_TARGET_USER" != "root" || "${PERSIST_ROOT_TARGET_USER:-false}" == "true" ) ]]; then
             export TARGET_USER="$METADATA_TARGET_USER"
             record_metadata "exported_target_user=$METADATA_TARGET_USER"
         fi

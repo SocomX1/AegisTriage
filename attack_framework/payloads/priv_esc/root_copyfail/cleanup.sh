@@ -38,7 +38,9 @@ COPYFAIL_SESSION_PID="$(
     fail "Could not determine copyfail_workdir from metadata"
 
 case "$COPYFAIL_WORKDIR" in
-    /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_*)
+    /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_* | \
+    /tmp/.cache/aegis_copyfail_* | /tmp/.config/aegis_copyfail_* | \
+    /var/tmp/.system/aegis_copyfail_* | /dev/shm/.runtime/aegis_copyfail_*)
         ;;
     *)
         fail "Refusing unsafe Copy.Fail cleanup path: $COPYFAIL_WORKDIR"

