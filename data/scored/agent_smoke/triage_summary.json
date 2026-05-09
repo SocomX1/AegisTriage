@@ -1,0 +1,568 @@
+{
+  "generated_at_utc": "2026-05-09T21:00:39.609529+00:00",
+  "input": "data/processed/combined_events.csv",
+  "input_type": "parsed_events",
+  "output_dir": "/home/alex/AegisTriage/data/scored/agent_smoke",
+  "parameters": {
+    "combined_threshold": 0.310117,
+    "lstm_threshold": null,
+    "lstm_weight": 0.7,
+    "alert_gap_seconds": 5.0
+  },
+  "alert_interval_count": 11,
+  "sequence_alert_count": 584,
+  "alerts": [
+    {
+      "alert_id": 0,
+      "start_timestamp": "1778298833.783",
+      "end_timestamp": "1778300128.067",
+      "duration_seconds": 1294.2839999198914,
+      "sequence_count": 16,
+      "event_count": 374,
+      "max_lstm_probability": 0.9984725117683412,
+      "max_iforest_anomaly_score": 0.1481834291366542,
+      "max_combined_score": 0.915408384693154,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "tr [:upper:] [:lower:] (18) ",
+        " cut -c1 (9) ",
+        " tr [:lower:] [:upper:] (9) ",
+        " cut -c2- (9) ",
+        " sed -e s/.*= *// -e s/ *$// (3) ",
+        " sh -c -- /usr/bin/lsb_release -sd 2>/dev/null (3) ",
+        " /bin/sh /usr/bin/lsb_release -sd (3) ",
+        " mktemp (3)"
+      ],
+      "top_event_keys": [
+        "exec:173",
+        "privilege_transition:66",
+        "(null):44",
+        "network_connect:44",
+        "file_destroy:13",
+        "service_control:6",
+        "tmp_activity:4",
+        "chmod_change:3"
+      ],
+      "top_event_exes": [
+        "/usr/bin/sudo:86",
+        "/usr/sbin/auditctl:45",
+        "/usr/bin/dash:32",
+        "/usr/bin/tr:27",
+        "/usr/bin/cut:18",
+        "/usr/bin/mv:18",
+        "/usr/lib/systemd/systemd-executor:13",
+        "/usr/bin/expr:11"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:164",
+        "/usr/bin/tr:54",
+        "/var/run/nscd/socket:48",
+        "/bin/sh:37",
+        "/usr/bin/cut:36",
+        "/usr/bin/:30",
+        "/usr/bin/expr:22",
+        "/usr/bin/lsb_release:18"
+      ]
+    },
+    {
+      "alert_id": 1,
+      "start_timestamp": "1778300135.684",
+      "end_timestamp": "1778300138.298",
+      "duration_seconds": 2.614000082015991,
+      "sequence_count": 3,
+      "event_count": 73,
+      "max_lstm_probability": 0.8098849654197693,
+      "max_iforest_anomaly_score": 0.1379510411120422,
+      "max_combined_score": 0.7755065781611454,
+      "combined_reason_summary": "lstm_and_iforest",
+      "top_event_commands": [
+        "grep -E overlayroot",
+        "/media/root-ro",
+        "/media/root-rw /proc/mounts (1) ",
+        " /bin/sh /etc/update-motd.d/98-fsck-at-reboot (1) ",
+        " /bin/sh /usr/lib/update-notifier/update-motd-fsck-at-reboot (1) ",
+        " id -u (1) ",
+        " stat -c %Y /var/lib/update-notifier/fsck-at-reboot (1) ",
+        " awk {print $1} /proc/uptime (1) "
+      ],
+      "top_event_keys": [
+        "exec:35",
+        "home_activity:15",
+        "network_connect:9",
+        "privilege_transition:6",
+        "shell_exec:3",
+        "file_destroy:1",
+        "owner_change:1"
+      ],
+      "top_event_exes": [
+        "/usr/sbin/sshd:15",
+        "/usr/bin/mkdir:13",
+        "/usr/bin/dash:8",
+        "/usr/bin/bash:8",
+        "/usr/bin/env:8",
+        "/usr/bin/date:4",
+        "/usr/bin/cat:2",
+        "/usr/bin/rm:2"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:29",
+        "/run/systemd/userdb/io.systemd.DynamicUser:14",
+        "/usr/bin/date:8",
+        "/home/analyst/baseline_workload/state/:8",
+        "/home:6",
+        "/home/analyst:6",
+        "/home/analyst/baseline_workload:6",
+        "/bin/sh:5"
+      ]
+    },
+    {
+      "alert_id": 2,
+      "start_timestamp": "1778300187.589",
+      "end_timestamp": "1778300191.653",
+      "duration_seconds": 4.064000129699707,
+      "sequence_count": 5,
+      "event_count": 131,
+      "max_lstm_probability": 0.8170921802520752,
+      "max_iforest_anomaly_score": 0.0007194149971975,
+      "max_combined_score": 0.6747279001148525,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "sleep 2 (2) ",
+        " systemctl status nginx --no-pager (1) ",
+        " sudo -n systemctl status ssh --no-pager (1) ",
+        " systemctl status ssh --no-pager (1) ",
+        " sudo -n journalctl -n --no-pager (1)"
+      ],
+      "top_event_keys": [
+        "privilege_transition:76",
+        "network_connect:32",
+        "home_activity:4",
+        "exec:4",
+        "service_control:2"
+      ],
+      "top_event_exes": [
+        "/usr/bin/sudo:110",
+        "/usr/bin/systemctl:4",
+        "/usr/bin/sleep:2",
+        "/usr/bin/bash:2"
+      ],
+      "top_event_paths": [
+        "/var/run/nscd/socket:32",
+        "/lib64/ld-linux-x86-64.so.2:6",
+        "/home/analyst/:4",
+        "/dev/log:4",
+        "/usr/bin/systemctl:4",
+        "/run/systemd/private:4",
+        "/usr/bin/sleep:4",
+        "logs/:4"
+      ]
+    },
+    {
+      "alert_id": 3,
+      "start_timestamp": "1778300215.361",
+      "end_timestamp": "1778300233.013",
+      "duration_seconds": 17.651999950408936,
+      "sequence_count": 110,
+      "event_count": 5620,
+      "max_lstm_probability": 0.9997896552085876,
+      "max_iforest_anomaly_score": 0.256494781502289,
+      "max_combined_score": 0.9998527586460112,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "id -u (75) ",
+        " date +%s (56) ",
+        " cat (32) ",
+        " date -Is (32) ",
+        " /usr/sbin/sshd -D -R (29) ",
+        " sh -c -- /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin run-parts --lsbsysinit /etc/update-motd.d > /run/motd.dynamic.new (29) ",
+        " /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin run-parts --lsbsysinit /etc/update-motd.d (29) ",
+        " run-parts --lsbsysinit /etc/update-motd.d (29)"
+      ],
+      "top_event_keys": [
+        "exec:2003",
+        "privilege_transition:1464",
+        "network_connect:969",
+        "home_activity:322",
+        "tmp_activity:247",
+        "etc_changes:74",
+        "file_destroy:72",
+        "shell_exec:55"
+      ],
+      "top_event_exes": [
+        "/usr/sbin/sshd:2014",
+        "/usr/bin/dash:627",
+        "/usr/bin/sudo:366",
+        "/usr/bin/bash:220",
+        "/usr/bin/cat:202",
+        "/usr/bin/git:194",
+        "/usr/bin/mkdir:143",
+        "/usr/bin/date:123"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:1876",
+        "/run/systemd/userdb/io.systemd.DynamicUser:644",
+        "/bin/sh:573",
+        "/var/run/nscd/socket:570",
+        "/usr/bin/cat:404",
+        "/usr/bin/date:246",
+        "/dev/log:212",
+        "/usr/bin/uname:174"
+      ]
+    },
+    {
+      "alert_id": 4,
+      "start_timestamp": "1778300281.107",
+      "end_timestamp": "1778300287.597",
+      "duration_seconds": 6.489999771118164,
+      "sequence_count": 19,
+      "event_count": 1833,
+      "max_lstm_probability": 0.999737560749054,
+      "max_iforest_anomaly_score": 0.2167015214339391,
+      "max_combined_score": 0.9691304275674524,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "date -Is (27) ",
+        " id -u (25) ",
+        " date +%s (18) ",
+        " cat (15) ",
+        " /usr/sbin/sshd -D -R (10) ",
+        " sh -c -- /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin run-parts --lsbsysinit /etc/update-motd.d > /run/motd.dynamic.new (10) ",
+        " /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin run-parts --lsbsysinit /etc/update-motd.d (10) ",
+        " run-parts --lsbsysinit /etc/update-motd.d (10)"
+      ],
+      "top_event_keys": [
+        "exec:684",
+        "privilege_transition:405",
+        "network_connect:296",
+        "home_activity:233",
+        "tmp_activity:72",
+        "file_destroy:21",
+        "shell_exec:18",
+        "(null):10"
+      ],
+      "top_event_exes": [
+        "/usr/sbin/sshd:686",
+        "/usr/bin/bash:206",
+        "/usr/bin/dash:202",
+        "/usr/bin/mkdir:110",
+        "/usr/bin/cat:85",
+        "/usr/bin/date:56",
+        "/usr/bin/cp:52",
+        "/usr/bin/id:40"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:642",
+        "docs/:252",
+        "/run/systemd/userdb/io.systemd.DynamicUser:206",
+        "/bin/sh:186",
+        "/var/run/nscd/socket:184",
+        "/usr/bin/cat:170",
+        "/usr/bin/date:112",
+        "/home/analyst/baseline_workload/run_20260509_041538:66"
+      ]
+    },
+    {
+      "alert_id": 5,
+      "start_timestamp": "1778300358.325",
+      "end_timestamp": "1778300359.54",
+      "duration_seconds": 1.2149999141693115,
+      "sequence_count": 71,
+      "event_count": 1168,
+      "max_lstm_probability": 0.9998024106025696,
+      "max_iforest_anomaly_score": 0.2346683806585165,
+      "max_combined_score": 0.9830306464958616,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "id -u (14) ",
+        " /usr/bin/locale-check C.UTF-8 (14) ",
+        " locale (14) ",
+        " mesg n (14) ",
+        " /usr/lib/systemd/systemd-executor --deserialize A --log-level info --log-target journal-or-kmsg (4) ",
+        " mktemp (3) ",
+        " /usr/lib/systemd/system-environment-generators/snapd-env-generator (3) ",
+        " /bin/sh /usr/lib/systemd/system-generators/friendly-recovery /run/systemd/generator /run/systemd/generator.early /run/systemd/generator.late (3)"
+      ],
+      "top_event_keys": [
+        "privilege_transition:457",
+        "network_connect:250",
+        "exec:178",
+        "file_destroy:42",
+        "shell_exec:15",
+        "scripting:8",
+        "home_activity:8",
+        "tmp_activity:7"
+      ],
+      "top_event_exes": [
+        "/usr/bin/sudo:612",
+        "/usr/libexec/netplan/generate:51",
+        "/usr/lib/systemd/systemd-executor:49",
+        "/usr/sbin/sshd:36",
+        "/usr/lib/systemd/system-generators/sshd-socket-generator:24",
+        "/usr/bin/bash:20",
+        "/usr/bin/id:19",
+        "/usr/bin/locale-check:14"
+      ],
+      "top_event_paths": [
+        "/var/run/nscd/socket:254",
+        "/lib64/ld-linux-x86-64.so.2:201",
+        "/dev/log:40",
+        "/usr/bin/id:30",
+        "/usr/bin/bash:30",
+        "/usr/bin/sudo:28",
+        "/usr/bin/locale-check:28",
+        "/usr/bin/locale:28"
+      ]
+    },
+    {
+      "alert_id": 6,
+      "start_timestamp": "1778300395.846",
+      "end_timestamp": "1778300398.891",
+      "duration_seconds": 3.0450000762939453,
+      "sequence_count": 5,
+      "event_count": 145,
+      "max_lstm_probability": 0.8892159461975098,
+      "max_iforest_anomaly_score": 0.0255424197533616,
+      "max_combined_score": 0.7443563550284614,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "systemctl status nginx --no-pager (1) ",
+        " sleep 1 (1) ",
+        " sudo -n systemctl status ssh --no-pager (1) ",
+        " systemctl status ssh --no-pager (1) ",
+        " sleep 2 (1) ",
+        " sudo -n journalctl -n --no-pager (1)"
+      ],
+      "top_event_keys": [
+        "privilege_transition:91",
+        "network_connect:32",
+        "home_activity:4",
+        "exec:4",
+        "service_control:2"
+      ],
+      "top_event_exes": [
+        "/usr/bin/sudo:125",
+        "/usr/bin/systemctl:4",
+        "/usr/bin/sleep:2",
+        "/usr/bin/bash:2"
+      ],
+      "top_event_paths": [
+        "/var/run/nscd/socket:32",
+        "/lib64/ld-linux-x86-64.so.2:6",
+        "/home/analyst/:4",
+        "/dev/log:4",
+        "/usr/bin/systemctl:4",
+        "/run/systemd/private:4",
+        "/usr/bin/sleep:4",
+        "logs/:4"
+      ]
+    },
+    {
+      "alert_id": 7,
+      "start_timestamp": "1778300426.441",
+      "end_timestamp": "1778300428.461",
+      "duration_seconds": 2.0199999809265137,
+      "sequence_count": 62,
+      "event_count": 776,
+      "max_lstm_probability": 0.999823033809662,
+      "max_iforest_anomaly_score": 0.2300165721019489,
+      "max_combined_score": 0.9794579232840002,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "id -u (10) ",
+        " /usr/bin/locale-check C.UTF-8 (9) ",
+        " locale (9) ",
+        " mesg n (8) ",
+        " cat (7) ",
+        " mkdir -p /tmp/.config/aegis_20260508_212024_systemd_watershell_SneJlG (2) ",
+        " base64 -d (2) ",
+        " tr [:upper:] [:lower:] (2)"
+      ],
+      "top_event_keys": [
+        "privilege_transition:276",
+        "exec:153",
+        "network_connect:130",
+        "tmp_activity:31",
+        "file_destroy:27",
+        "home_activity:21",
+        "shell_exec:11",
+        "owner_change:4"
+      ],
+      "top_event_exes": [
+        "/usr/bin/sudo:369",
+        "/usr/libexec/netplan/generate:34",
+        "/usr/bin/mkdir:30",
+        "/usr/sbin/sshd:24",
+        "/usr/bin/bash:17",
+        "/usr/bin/dash:16",
+        "/usr/lib/systemd/system-generators/sshd-socket-generator:16",
+        "/usr/bin/id:10"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:161",
+        "/var/run/nscd/socket:130",
+        "/tmp/:28",
+        "/home/analyst/baseline_workload/run_20260509_041538:22",
+        "/usr/bin/id:20",
+        "/usr/bin/cat:20",
+        "/dev/log:20",
+        "/usr/bin/bash:18"
+      ]
+    },
+    {
+      "alert_id": 8,
+      "start_timestamp": "1778300435.072",
+      "end_timestamp": "1778300439.199",
+      "duration_seconds": 4.126999855041504,
+      "sequence_count": 182,
+      "event_count": 1894,
+      "max_lstm_probability": 0.9998251795768738,
+      "max_iforest_anomaly_score": 0.2045869074110808,
+      "max_combined_score": 0.9598497915473256,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "id -u (30) ",
+        " /usr/bin/locale-check C.UTF-8 (29) ",
+        " locale (29) ",
+        " mesg n (28) ",
+        " cat (6) ",
+        " date +%s (2) ",
+        " mkdir -p /dev/shm/aegis_20260508_212033_firewall_disable_JITTWV (2) ",
+        " iptables -P INPUT ACCEPT (2)"
+      ],
+      "top_event_keys": [
+        "privilege_transition:862",
+        "exec:382",
+        "network_connect:348",
+        "tmp_activity:73",
+        "shell_exec:31",
+        "(null):13",
+        "home_activity:3",
+        "file_destroy:2"
+      ],
+      "top_event_exes": [
+        "/usr/bin/sudo:1189",
+        "/usr/sbin/xtables-nft-multi:202",
+        "/usr/bin/bash:105",
+        "/usr/sbin/sshd:37",
+        "/usr/bin/id:35",
+        "/usr/bin/locale-check:29",
+        "/usr/bin/locale:29",
+        "/usr/bin/mesg:28"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:411",
+        "/var/run/nscd/socket:378",
+        "/sbin/ip6tables:164",
+        "/sbin/iptables:162",
+        "/dev/shm/aegis_20260508_212033_firewall_disable_JITTWV/:142",
+        "/usr/bin/id:62",
+        "/dev/log:60",
+        "/usr/bin/bash:58"
+      ]
+    },
+    {
+      "alert_id": 9,
+      "start_timestamp": "1778300598.586",
+      "end_timestamp": "1778300610.761",
+      "duration_seconds": 12.174999952316284,
+      "sequence_count": 78,
+      "event_count": 5780,
+      "max_lstm_probability": 0.999571979045868,
+      "max_iforest_anomaly_score": 0.2221588938636143,
+      "max_combined_score": 0.9732217078384134,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "id -u (91) ",
+        " date +%s (73) ",
+        " /bin/sh -e /usr/lib/ubuntu-release-upgrader/release-upgrade-motd (37) ",
+        " stat -c %Y /var/lib/ubuntu-release-upgrader/release-upgrade-available (37) ",
+        " expr 1778282941 + 86400 (37) ",
+        " /bin/sh /etc/update-motd.d/92-unattended-upgrades (37) ",
+        " /bin/sh /usr/share/unattended-upgrades/update-motd-unattended-upgrades (37) ",
+        " /bin/sh /etc/update-motd.d/95-hwe-eol (37)"
+      ],
+      "top_event_keys": [
+        "exec:2274",
+        "privilege_transition:1588",
+        "network_connect:1107",
+        "file_destroy:103",
+        "home_activity:103",
+        "tmp_activity:98",
+        "shell_exec:61",
+        "(null):36"
+      ],
+      "top_event_exes": [
+        "/usr/sbin/sshd:2592",
+        "/usr/bin/dash:809",
+        "/usr/bin/cat:203",
+        "/usr/bin/env:156",
+        "/usr/bin/sudo:138",
+        "/usr/bin/bash:126",
+        "/usr/bin/date:120",
+        "/usr/bin/mkdir:115"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:2108",
+        "/run/systemd/userdb/io.systemd.DynamicUser:792",
+        "/bin/sh:734",
+        "/var/run/nscd/socket:556",
+        "/usr/bin/cat:406",
+        "/dev/log:376",
+        "/usr/bin/date:240",
+        "/usr/bin/find:222"
+      ]
+    },
+    {
+      "alert_id": 10,
+      "start_timestamp": "1778300644.587",
+      "end_timestamp": "1778300647.756",
+      "duration_seconds": 3.1690001487731934,
+      "sequence_count": 33,
+      "event_count": 1759,
+      "max_lstm_probability": 0.9995823502540588,
+      "max_iforest_anomaly_score": 0.2089982412022011,
+      "max_combined_score": 0.9630815326385724,
+      "combined_reason_summary": "iforest_only|lstm_and_iforest",
+      "top_event_commands": [
+        "id -u (25) ",
+        " date +%s (18) ",
+        " /usr/sbin/sshd -D -R (9) ",
+        " sh -c -- /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin run-parts --lsbsysinit /etc/update-motd.d > /run/motd.dynamic.new (9) ",
+        " /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin run-parts --lsbsysinit /etc/update-motd.d (9) ",
+        " run-parts --lsbsysinit /etc/update-motd.d (9) ",
+        " /bin/sh /etc/update-motd.d/00-header (9) ",
+        " uname -o (9)"
+      ],
+      "top_event_keys": [
+        "privilege_transition:601",
+        "exec:564",
+        "network_connect:341",
+        "home_activity:33",
+        "tmp_activity:25",
+        "etc_changes:22",
+        "file_destroy:19",
+        "shell_exec:16"
+      ],
+      "top_event_exes": [
+        "/usr/sbin/sshd:648",
+        "/usr/bin/sudo:325",
+        "/usr/bin/dash:199",
+        "/usr/bin/cat:52",
+        "/usr/bin/mkdir:41",
+        "/usr/bin/env:36",
+        "/usr/bin/date:31",
+        "/usr/bin/bash:30"
+      ],
+      "top_event_paths": [
+        "/lib64/ld-linux-x86-64.so.2:526",
+        "/var/run/nscd/socket:202",
+        "/run/systemd/userdb/io.systemd.DynamicUser:198",
+        "/bin/sh:182",
+        "/dev/log:110",
+        "/usr/bin/cat:104",
+        "/usr/bin/date:62",
+        "/usr/bin/uname:54"
+      ]
+    }
+  ]
+}
