@@ -357,18 +357,45 @@ prepare_remote_staging() {
 }
 
 send_delivery_marker() {
-    local marker="$1"
+    local phase="$1"
+    local marker="$2"
     local q_marker
+    local remote_command
+    local marker_output
+    local target_epoch=""
+    local target_iso=""
 
     q_marker="$(shell_quote "$marker")"
+    remote_command="
+        epoch=\$(date +%s.%N)
+        iso=\$(date -Is)
+        marker=$q_marker
+        marker=\"\$marker epoch=\$epoch iso=\$iso\"
+        logger -t aegis_attack_marker -- \"\$marker\"
+        printf 'target_epoch=%s\n' \"\$epoch\"
+        printf 'target_iso=%s\n' \"\$iso\"
+    "
 
-    if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
-        ssh_remote_command "$TARGET" "logger -t aegis_attack_marker -- $q_marker" || {
-            warn "Failed to send marker to target: $marker"
-            return 1
-        }
-    else
-        send_marker "$MARKER_TARGET" "$marker"
+    if ! marker_output="$(ssh_remote_command "$MARKER_TARGET" "$remote_command")"; then
+        warn "Failed to send $phase marker to target: $marker"
+        return 1
+    fi
+
+    target_epoch="$(
+        printf '%s\n' "$marker_output" |
+            awk -F= '$1 == "target_epoch" { print $2; exit }'
+    )"
+    target_iso="$(
+        printf '%s\n' "$marker_output" |
+            awk -F= '$1 == "target_iso" { print $2; exit }'
+    )"
+
+    if [[ -n "$target_epoch" ]]; then
+        record_metadata "target_${phase}_epoch=$target_epoch"
+    fi
+
+    if [[ -n "$target_iso" ]]; then
+        record_metadata "target_${phase}_iso=$target_iso"
     fi
 }
 
@@ -491,19 +518,17 @@ START_MARKER="START run_id=$RUN_ID chain_id=$CHAIN_ID delivery=$DELIVERY_NAME pa
 MARKER_TARGET="$TARGET"
 
 if [[ "${TYPE:-}" == "ssh_auth" ]]; then
-    MARKER_TARGET="${USERNAME}@${TARGET}"
+    MARKER_TARGET="${USERNAME}@${TARGET#*@}"
 fi
 
-END_MARKER="END run_id=$RUN_ID chain_id=$CHAIN_ID delivery=$DELIVERY_NAME payload=$PAYLOAD_NAME category=$CATEGORY"
+END_MARKER="END run_id=$RUN_ID chain_id=$CHAIN_ID delivery=$DELIVERY_NAME payload=$PAYLOAD_NAME category=$CATEGORY success=true"
 
 trap '
 run_delivery_cleanup || true
 record_metadata "finished_at=$(date -Is)"
 ' EXIT
 
-if [[ "${TYPE:-}" != "ssh_auth" ]]; then
-    send_delivery_marker "$START_MARKER"
-fi
+send_delivery_marker "start" "$START_MARKER"
 
 log "Run ID: $RUN_ID"
 log "Delivery: $DELIVERY_NAME"
@@ -1063,9 +1088,7 @@ local_controller)
     ;;
 esac
 
-if [[ "${TYPE:-}" != "ssh_auth" ]]; then
-    send_delivery_marker "$END_MARKER"
-fi
+send_delivery_marker "end" "$END_MARKER"
 
 record_metadata "success=true"
 finalize_metadata
