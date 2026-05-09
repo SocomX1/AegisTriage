@@ -314,6 +314,7 @@ prepare_remote_staging() {
     local candidate_base
     local candidate_run_dir
     local q_candidate_run_dir
+    local staging_error
     local tried=""
 
     if [[ -n "${AEGIS_REMOTE_RUN_DIR:-}" ]]; then
@@ -324,7 +325,7 @@ prepare_remote_staging() {
             fail "Refusing unsafe AEGIS_REMOTE_RUN_DIR: $REMOTE_RUN_DIR"
 
         q_candidate_run_dir="$(shell_quote "$REMOTE_RUN_DIR")"
-        ssh_remote_command "$TARGET" "mkdir -p $q_candidate_run_dir && test -d $q_candidate_run_dir && test -w $q_candidate_run_dir" >/dev/null ||
+        ssh_remote_command "$TARGET" "mkdir -p $q_candidate_run_dir && test -d $q_candidate_run_dir && test -w $q_candidate_run_dir" </dev/null >/dev/null ||
             fail "Unable to create or write remote run directory: $REMOTE_RUN_DIR"
         return 0
     fi
@@ -344,13 +345,18 @@ prepare_remote_staging() {
 
         q_candidate_run_dir="$(shell_quote "$candidate_run_dir")"
 
-        if ssh_remote_command "$TARGET" "mkdir -p $q_candidate_run_dir && test -d $q_candidate_run_dir && test -w $q_candidate_run_dir" >/dev/null 2>&1; then
+        staging_error="$(
+            ssh_remote_command "$TARGET" "mkdir -p $q_candidate_run_dir && test -d $q_candidate_run_dir && test -w $q_candidate_run_dir" </dev/null 2>&1 >/dev/null
+        )" && {
             REMOTE_STAGE_BASE="${candidate_base%/}"
             REMOTE_RUN_DIR="$candidate_run_dir"
             return 0
-        fi
+        }
 
         warn "Remote staging candidate is not writable, trying another: $candidate_run_dir"
+        if [[ -n "$staging_error" ]]; then
+            warn "Remote staging error: $staging_error"
+        fi
     done < <(emit_remote_stage_candidates)
 
     fail "Unable to find writable remote staging directory for run: $RUN_ID"

@@ -10,6 +10,11 @@ sudo systemctl enable auditd
 sudo systemctl start auditd
 sudo systemctl status auditd
 
+sudo vim /etc/audit/auditd.conf
+max_log_file = 200
+num_logs = 10
+max_log_file_action = ROTATE
+
 sudo mkdir -p /root/.ssh
 sudo chmod 700 /root/.ssh
 

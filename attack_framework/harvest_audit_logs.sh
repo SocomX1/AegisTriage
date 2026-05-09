@@ -35,6 +35,19 @@ fail() {
     exit 1
 }
 
+resolve_repo_path() {
+    local path="$1"
+
+    case "$path" in
+        /*)
+            printf '%s\n' "$path"
+            ;;
+        *)
+            printf '%s/%s\n' "$REPO_ROOT" "$path"
+            ;;
+    esac
+}
+
 target="${1:-}"
 if [[ -z "$target" || "$target" == "-h" || "$target" == "--help" ]]; then
     usage
@@ -44,6 +57,8 @@ fi
 if [[ $# -ge 2 ]]; then
     OUTPUT_PATH="$2"
 fi
+
+OUTPUT_PATH="$(resolve_repo_path "$OUTPUT_PATH")"
 
 if [[ "$target" == *"@"* ]]; then
     SSH_TARGET="$target"

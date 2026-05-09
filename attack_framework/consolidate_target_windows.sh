@@ -35,6 +35,19 @@ metadata_get_last() {
     awk -F= -v key="$key" '$1 == key { value = substr($0, length(key) + 2) } END { print value }' "$path"
 }
 
+resolve_repo_path() {
+    local path="$1"
+
+    case "$path" in
+        /*)
+            printf '%s\n' "$path"
+            ;;
+        *)
+            printf '%s/%s\n' "$REPO_ROOT" "$path"
+            ;;
+    esac
+}
+
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
     exit 0
@@ -43,6 +56,8 @@ fi
 if [[ $# -ge 1 ]]; then
     OUTPUT_PATH="$1"
 fi
+
+OUTPUT_PATH="$(resolve_repo_path "$OUTPUT_PATH")"
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 tmp_output="$(mktemp "${OUTPUT_PATH}.tmp.XXXXXX")"
