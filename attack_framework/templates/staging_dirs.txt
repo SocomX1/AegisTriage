@@ -1,7 +1,3 @@
 /tmp
 /var/tmp
 /dev/shm
-/tmp/.cache
-/var/tmp/.system
-/dev/shm/.runtime
-/tmp/.config
