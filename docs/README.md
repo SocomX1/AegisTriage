@@ -91,16 +91,26 @@ No critical blockers encountered so far.
 
 ## Next-Step Plan
 
-Following our original 8-week timeline, the next milestones are:
+The IF is now doing its intended job well enough for the POC: trained on benign-only data, calibrated against held-out benign, and using an explicit threshold. The current 0.153295 threshold gives a reasonable operating point: low benign FPR with full malicious-window recall on the current labeled mixed set. More IF work now is likely to give diminishing returns compared to improving the supervised side.
 
-Weeks 2–3: Finish Drain parsing implementation, build feature engineering code (event count vectors, windowing, time deltas), and train/evaluate the Isolation Forest baseline against BGL labels to establish our benchmark numbers.
+Next highest-value steps:
 
-Weeks 4–5: Implement the LSTM, define the sequence input pipeline, train the model, and tune hyperparameters (window length, hidden layers, dropout, anomaly threshold) using validation F1 as the criterion. Compare directly against the Isolation Forest.
-
-Week 6: Address class imbalance (likely through oversampling, class weighting, or threshold calibration) and run full evaluation on the held-out test set.
-
-Week 7: Produce visualizations, training curves, and error analysis, especially examining false negative cases where malicious behavior slipped through.
-
-Week 8: Final report, demo, and presentation, with the trained agent packaged for lightweight deployment on a competition-style VM.
-
-Key experiments planned: sweeping LSTM window length and hidden layer count; comparing class imbalance strategies; measuring inference latency to confirm the agent is deployable in a live competition environment.
+1. Collect more attack telemetry
+    - This is the biggest weakness right now.
+    - The LSTM had validation issues because some attack families appeared only in validation, not training.
+2. Relabel with stricter ambiguous handling
+    - Mark framework-only staging/delivery artifacts as ambiguous.
+    - Label attacker-visible behavior and target state changes as malicious.
+    - This should reduce LSTM boundary noise.
+    - Keep --min-malicious-events 5 for now.
+    - Evaluate whether 3 improves recall without introducing noisy positives.
+3. Recalibrate combined threshold
+    - After retraining the LSTM, rerun:
+        - evaluate_lstm.py
+        - evaluate_models.py
+        - calibrate_isolation_forest.py if IF model changes
+    - Pick a new --combined-threshold if needed.
+4. Add event/interval-level evaluation
+    - Current combined evaluation is sequence-level.
+    - The agent emits alert intervals, so interval-level precision/recall will better match actual analyst
+        experience.
