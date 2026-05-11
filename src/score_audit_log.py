@@ -57,6 +57,9 @@ REQUIRED_EVENT_COLUMNS = [
     "auid",
 ]
 
+DEFAULT_IFOREST_THRESHOLD = 0.153295
+DEFAULT_COMBINED_THRESHOLD = 0.310117
+
 
 def minmax(series: pd.Series) -> pd.Series:
     values = pd.to_numeric(series, errors="coerce").fillna(0.0)
@@ -103,6 +106,7 @@ def score_iforest(
     model_path: Path,
     features_path: Path,
     window_size: float,
+    iforest_threshold: float,
 ) -> pd.DataFrame:
     build_window_features.build_features(
         input_path=parsed_events,
@@ -127,11 +131,20 @@ def score_iforest(
     scored["iforest_normality_score"] = normality_score
     scored["iforest_anomaly_score"] = -normality_score
     scored["iforest_is_anomaly"] = (prediction == -1).astype(int)
+    scored["iforest_threshold"] = iforest_threshold
+    scored["iforest_threshold_alert"] = (
+        scored["iforest_anomaly_score"] >= iforest_threshold
+    ).astype(int)
     scored_output.parent.mkdir(parents=True, exist_ok=True)
     scored.to_csv(scored_output, index=False)
 
     print(f"[+] IF windows: {len(scored)}")
-    print(f"[+] IF anomalies: {int(scored['iforest_is_anomaly'].sum())}")
+    print(f"[+] IF model-native anomalies: {int(scored['iforest_is_anomaly'].sum())}")
+    print(
+        "[+] IF calibrated threshold alerts: "
+        f"{int(scored['iforest_threshold_alert'].sum())} "
+        f"(threshold={iforest_threshold:.6f})"
+    )
     print(f"[+] Wrote IF scores: {scored_output}")
     return scored
 
@@ -275,10 +288,20 @@ def score_lstm(
     return scored
 
 
-def join_scores(lstm: pd.DataFrame, iforest: pd.DataFrame, lstm_weight: float) -> pd.DataFrame:
+def join_scores(
+    lstm: pd.DataFrame,
+    iforest: pd.DataFrame,
+    lstm_weight: float,
+    iforest_threshold: float,
+) -> pd.DataFrame:
     rows = []
     iforest = iforest.copy()
     iforest["iforest_anomaly_score_norm"] = minmax(iforest["iforest_anomaly_score"])
+    if "iforest_threshold_alert" not in iforest.columns:
+        iforest["iforest_threshold_alert"] = (
+            pd.to_numeric(iforest["iforest_anomaly_score"], errors="coerce").fillna(0.0)
+            >= iforest_threshold
+        ).astype(int)
 
     for _, sequence in lstm.iterrows():
         start = float(sequence["start_timestamp"])
@@ -295,6 +318,8 @@ def join_scores(lstm: pd.DataFrame, iforest: pd.DataFrame, lstm_weight: float) -
                     "iforest_mean_anomaly_score": 0.0,
                     "iforest_max_anomaly_score_norm": 0.0,
                     "iforest_any_anomaly": 0,
+                    "iforest_model_any_anomaly": 0,
+                    "iforest_threshold": iforest_threshold,
                 }
             )
         else:
@@ -305,7 +330,9 @@ def join_scores(lstm: pd.DataFrame, iforest: pd.DataFrame, lstm_weight: float) -
                     "iforest_max_anomaly_score": float(overlaps["iforest_anomaly_score"].max()),
                     "iforest_mean_anomaly_score": float(overlaps["iforest_anomaly_score"].mean()),
                     "iforest_max_anomaly_score_norm": float(overlaps["iforest_anomaly_score_norm"].max()),
-                    "iforest_any_anomaly": int(overlaps["iforest_is_anomaly"].max()),
+                    "iforest_any_anomaly": int(overlaps["iforest_threshold_alert"].max()),
+                    "iforest_model_any_anomaly": int(overlaps["iforest_is_anomaly"].max()),
+                    "iforest_threshold": iforest_threshold,
                 }
             )
         rows.append(row)
@@ -457,8 +484,14 @@ def main() -> None:
     parser.add_argument("--lstm-model", default="models/lstm_classifier.pt")
     parser.add_argument("--lstm-vocab", default="data/model/lstm_vocab.json")
     parser.add_argument("--window-size", type=float, default=10.0)
+    parser.add_argument(
+        "--iforest-threshold",
+        type=float,
+        default=DEFAULT_IFOREST_THRESHOLD,
+        help="Raw IF anomaly-score threshold for calibrated IF alerts.",
+    )
     parser.add_argument("--lstm-threshold", type=float)
-    parser.add_argument("--combined-threshold", type=float, default=0.310117)
+    parser.add_argument("--combined-threshold", type=float, default=DEFAULT_COMBINED_THRESHOLD)
     parser.add_argument("--lstm-weight", type=float, default=0.7)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
@@ -474,6 +507,8 @@ def main() -> None:
 
     if args.window_size <= 0:
         raise ValueError("--window-size must be positive")
+    if args.iforest_threshold < 0:
+        raise ValueError("--iforest-threshold must be non-negative")
     if not 0.0 <= args.combined_threshold <= 1.0:
         raise ValueError("--combined-threshold must be between 0 and 1")
     if not 0.0 <= args.lstm_weight <= 1.0:
@@ -511,6 +546,7 @@ def main() -> None:
         model_path=Path(args.iforest_model),
         features_path=Path(args.iforest_features),
         window_size=args.window_size,
+        iforest_threshold=args.iforest_threshold,
     )
     lstm_scores = score_lstm(
         parsed_events=parsed_events,
@@ -522,7 +558,12 @@ def main() -> None:
         threshold=args.lstm_threshold,
     )
 
-    combined = join_scores(lstm_scores, iforest_scores, args.lstm_weight)
+    combined = join_scores(
+        lstm_scores,
+        iforest_scores,
+        args.lstm_weight,
+        args.iforest_threshold,
+    )
     combined["combined_alert"] = (combined["combined_score"] >= args.combined_threshold).astype(int)
     combined["combined_threshold"] = args.combined_threshold
     combined_scores_path.parent.mkdir(parents=True, exist_ok=True)

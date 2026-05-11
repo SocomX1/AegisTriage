@@ -22,6 +22,8 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCORE_SCRIPT = PROJECT_ROOT / "src" / "score_audit_log.py"
+DEFAULT_IFOREST_THRESHOLD = 0.153295
+DEFAULT_COMBINED_THRESHOLD = 0.310117
 
 
 def default_output_dir() -> Path:
@@ -35,6 +37,8 @@ def run_scorer(args: argparse.Namespace, output_dir: Path) -> None:
         str(SCORE_SCRIPT),
         "--output-dir",
         str(output_dir),
+        "--iforest-threshold",
+        str(args.iforest_threshold),
         "--combined-threshold",
         str(args.combined_threshold),
         "--lstm-weight",
@@ -118,6 +122,7 @@ def write_json_summary(output_dir: Path, alerts: pd.DataFrame, args: argparse.Na
         "input_type": "raw_audit_log" if args.audit_log else "parsed_events",
         "output_dir": str(output_dir),
         "parameters": {
+            "iforest_threshold": args.iforest_threshold,
             "combined_threshold": args.combined_threshold,
             "lstm_threshold": args.lstm_threshold,
             "lstm_weight": args.lstm_weight,
@@ -148,6 +153,7 @@ def write_markdown_report(output_dir: Path, alerts: pd.DataFrame, args: argparse
         f"- Output directory: `{output_dir}`",
         f"- Alert intervals: `{len(alerts)}`",
         f"- Positive sequences: `{sequence_alert_count}`",
+        f"- IF threshold: `{args.iforest_threshold}`",
         f"- Combined threshold: `{args.combined_threshold}`",
         f"- LSTM weight: `{args.lstm_weight}`",
         "",
@@ -255,7 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
     input_group.add_argument("--audit-log", help="Raw audit.log path.")
     input_group.add_argument("--parsed-events", help="Parsed event CSV path.")
     scan_parser.add_argument("--output-dir", help="Output directory. Defaults to data/scored/agent_<timestamp>.")
-    scan_parser.add_argument("--combined-threshold", type=float, default=0.310117)
+    scan_parser.add_argument("--iforest-threshold", type=float, default=DEFAULT_IFOREST_THRESHOLD)
+    scan_parser.add_argument("--combined-threshold", type=float, default=DEFAULT_COMBINED_THRESHOLD)
     scan_parser.add_argument("--lstm-threshold", type=float)
     scan_parser.add_argument("--lstm-weight", type=float, default=0.7)
     scan_parser.add_argument("--alert-gap-seconds", type=float, default=5.0)
@@ -277,6 +284,8 @@ def main() -> None:
 
     if hasattr(args, "combined_threshold") and not 0.0 <= args.combined_threshold <= 1.0:
         raise ValueError("--combined-threshold must be between 0 and 1")
+    if hasattr(args, "iforest_threshold") and args.iforest_threshold < 0:
+        raise ValueError("--iforest-threshold must be non-negative")
     if hasattr(args, "lstm_weight") and not 0.0 <= args.lstm_weight <= 1.0:
         raise ValueError("--lstm-weight must be between 0 and 1")
     if hasattr(args, "alert_gap_seconds") and args.alert_gap_seconds < 0:

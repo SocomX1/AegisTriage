@@ -1,5 +1,9 @@
-venv
-BGL_pipeline_demo/data
+data/raw/
+data/processed/
+data/review/
+data/scored/
+data/model/*.csv
+data/model/*.npz
 attack_framework/runs
 .venv/
 __pycache__/

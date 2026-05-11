@@ -36,6 +36,208 @@ or call it directly:
 .venv/bin/python ...
 ```
 
+## Python Script Flag Reference
+
+The sections below show normal pipeline usage. This reference lists every
+Python CLI flag currently exposed by the pipeline scripts.
+
+### `src/parse_audit_events.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--input` | required | Raw `audit.log` path to parse. |
+| `--output` | required | Parsed event CSV output path. |
+
+### `src/attach_attack_anchors.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--events` | `data/processed/combined_events.csv` | Parsed combined event CSV. |
+| `--windows` | `data/raw/target_attack_windows.csv` | Consolidated target attack-window CSV. |
+| `--output` | `data/processed/combined_events_anchored.csv` | Anchored event CSV output path. |
+| `--buffer-before` | `3.0` | Seconds of pre-attack context to attach. |
+| `--buffer-after` | `3.0` | Seconds of post-attack context to attach. |
+
+### `src/generate_review_slices.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--input` | `data/processed/combined_events_anchored.csv` | Anchored combined event CSV. |
+| `--output-dir` | `data/review` | Directory for per-attack manual review CSVs. |
+
+### `src/merge_review_labels.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--input` | `data/processed/combined_events_anchored.csv` | Anchored combined event CSV. |
+| `--review-dir` | `data/review` | Directory containing manually labeled review CSVs. |
+| `--output` | `data/processed/combined_events_manual.csv` | Merged manual-label event CSV. |
+
+### `src/build_window_features.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--input` | required | Parsed event CSV path. |
+| `--output` | required | Window feature CSV output path. |
+| `--source` | input filename stem | Metadata value written to the output `source` column. |
+| `--window-size` | `10.0` | Fixed window size in seconds. |
+| `--max-category-values` | `50` | Number of top values retained per categorical count family when creating a schema. |
+| `--schema-in` | unset | Existing window feature schema JSON to apply. |
+| `--schema-out` | unset | Path where a new window feature schema JSON should be written. |
+
+### `src/train_isolation_forest.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--train` | `data/model/isolation_forest_baseline_windows.csv` | Benign-only window feature CSV for training. |
+| `--model-out` | `models/isolation_forest.joblib` | Output trained Isolation Forest pipeline. |
+| `--features-out` | `models/isolation_forest_features.json` | Output feature-column manifest. |
+| `--score` | `data/model/combined_manual_windows.csv` | Optional window feature CSV to score after training. |
+| `--scores-out` | `data/model/combined_manual_iforest_scores.csv` | Output scored window CSV. |
+| `--n-estimators` | `300` | Number of Isolation Forest trees. |
+| `--contamination` | `auto` | Isolation Forest contamination setting; use `auto` or a float in `(0.0, 0.5]`. |
+| `--random-state` | `42` | Random seed. |
+| `--n-jobs` | `-1` | CPU workers for scikit-learn; `-1` uses all cores. |
+
+### `src/evaluate_isolation_forest.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--scores` | `data/model/combined_manual_iforest_scores.csv` | Scored window CSV from `train_isolation_forest.py`. |
+| `--sweep-out` | `data/model/isolation_forest_threshold_sweep.csv` | Output anomaly-score threshold sweep CSV. |
+| `--ranked-out` | `data/model/isolation_forest_ranked_windows.csv` | Output windows sorted by anomaly score. |
+| `--positive-labels` | `malicious` | Comma-separated labels treated as positives. |
+| `--negative-labels` | `benign,weak_benign,unlabeled` | Comma-separated labels treated as negatives. |
+| `--exclude-labels` | `ambiguous` | Comma-separated labels excluded from evaluation. |
+| `--top-n` | `15` | Number of top anomaly rows printed to stdout. |
+
+### `src/calibrate_isolation_forest.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--benign-scores` | `data/model/baseline_5hour_iforest_scores.csv` | Held-out benign scored window CSV used to choose thresholds. |
+| `--eval-scores` | unset | Optional labeled scored window CSV evaluated at the calibrated thresholds. |
+| `--output` | `data/model/isolation_forest_calibration.csv` | Output threshold calibration CSV. |
+| `--benign-ranked-out` | `data/model/isolation_forest_benign_ranked_windows.csv` | Output held-out benign windows sorted by anomaly score. |
+| `--eval-out` | `data/model/isolation_forest_calibrated_eval.csv` | Optional labeled evaluation output CSV. |
+| `--target-fprs` | `0.001,0.0025,0.005,0.01,0.02,0.05` | Comma-separated target benign false-positive rates. |
+| `--positive-labels` | `malicious` | Comma-separated labels treated as positives in optional evaluation. |
+| `--negative-labels` | `benign,weak_benign,unlabeled` | Comma-separated labels treated as negatives in optional evaluation. |
+| `--exclude-labels` | `ambiguous` | Comma-separated labels excluded from optional evaluation. |
+| `--top-n` | `20` | Number of threshold rows printed to stdout. |
+
+### `src/build_lstm_sequences.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--input` | `data/processed/combined_events_manual.csv` | Merged manual-label event CSV. |
+| `--output` | `data/model/lstm_sequences.npz` | Output compressed LSTM dataset. |
+| `--vocab-out` | `data/model/lstm_vocab.json` | Output categorical vocabulary/schema JSON. |
+| `--manifest-out` | `data/model/lstm_sequence_manifest.csv` | Output sequence manifest CSV. |
+| `--sequence-length` | `50` | Number of events per sequence. |
+| `--stride` | `10` | Event stride between sequence starts. |
+| `--max-vocab-size` | `256` | Maximum categorical vocabulary size per categorical column. |
+| `--segment-column` | `attack_run_id` | Column used to prevent sequences crossing unrelated segments; use an empty string for one global segment. |
+| `--include-labels` | `benign,malicious` | Comma-separated manual labels included in the dataset. |
+| `--min-malicious-events` | `5` | Minimum malicious events required for a sequence to be labeled malicious. |
+
+### `src/train_lstm.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--dataset` | `data/model/lstm_sequences.npz` | LSTM sequence dataset. |
+| `--vocab` | `data/model/lstm_vocab.json` | LSTM vocabulary/schema JSON. |
+| `--manifest` | `data/model/lstm_sequence_manifest.csv` | Sequence manifest CSV. |
+| `--model-out` | `models/lstm_classifier.pt` | Output PyTorch model checkpoint. |
+| `--metrics-out` | `data/model/lstm_metrics.json` | Output training/validation metrics JSON. |
+| `--predictions-out` | `data/model/lstm_validation_predictions.csv` | Output validation prediction CSV. |
+| `--device` | `auto` | Training device: `auto`, `cpu`, or `cuda`. |
+| `--epochs` | `30` | Maximum training epochs. |
+| `--batch-size` | `64` | Training batch size. |
+| `--embedding-dim` | `16` | Per-categorical-feature embedding dimension. |
+| `--hidden-dim` | `64` | LSTM hidden dimension. |
+| `--num-layers` | `1` | Number of LSTM layers. |
+| `--dropout` | `0.25` | Dropout probability. |
+| `--learning-rate` | `0.001` | Optimizer learning rate. |
+| `--val-size` | `0.25` | Fraction of grouped segments assigned to validation. |
+| `--threshold` | `0.5` | Probability threshold used for reported validation metrics. |
+| `--patience` | `8` | Early-stopping patience in epochs. |
+| `--random-state` | `42` | Random seed. |
+
+### `src/evaluate_lstm.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--predictions` | `data/model/lstm_validation_predictions.csv` | Validation prediction CSV from `train_lstm.py`. |
+| `--sweep-out` | `data/model/lstm_threshold_sweep.csv` | Output probability-threshold sweep CSV. |
+| `--ranked-out` | `data/model/lstm_ranked_predictions.csv` | Output predictions sorted by malicious probability. |
+| `--errors-out` | `data/model/lstm_validation_errors.csv` | Output false-positive and false-negative rows. |
+| `--threshold` | `0.5` | Probability threshold for default metrics. |
+| `--top-n` | `15` | Number of top ranked predictions printed to stdout. |
+
+### `src/evaluate_models.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--lstm` | `data/model/lstm_ranked_predictions.csv` | LSTM ranked prediction CSV from `evaluate_lstm.py`. |
+| `--iforest` | `data/model/combined_manual_iforest_scores.csv` | Isolation Forest scored window CSV. |
+| `--scores-out` | `data/model/combined_model_scores.csv` | Output sequence-level combined score CSV. |
+| `--sweep-out` | `data/model/combined_model_threshold_sweep.csv` | Output weighted-score threshold sweep CSV. |
+| `--ranked-out` | `data/model/combined_model_ranked_alerts.csv` | Output combined scores sorted by combined score. |
+| `--lstm-threshold` | `0.5` | LSTM probability threshold. |
+| `--iforest-threshold` | `0.153295` | Raw IF anomaly-score threshold for calibrated IF alerts. |
+| `--combined-threshold` | `0.310117` | Weighted combined-score threshold. |
+| `--lstm-weight` | `0.7` | Weight assigned to the LSTM probability; IF receives `1 - weight`. |
+| `--top-n` | `15` | Number of top combined rows printed to stdout. |
+
+### `src/score_audit_log.py`
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--raw-log` | mutually exclusive, required | Raw `audit.log` path to parse and score. |
+| `--parsed-events` | mutually exclusive, required | Existing parsed event CSV to score. |
+| `--output-dir` | `data/scored/latest` | Directory for scoring outputs. |
+| `--iforest-model` | `models/isolation_forest.joblib` | Trained Isolation Forest model. |
+| `--iforest-features` | `models/isolation_forest_features.json` | Isolation Forest feature-column manifest. |
+| `--window-schema` | `data/model/window_feature_schema.json` | Window feature schema used for IF windows. |
+| `--lstm-model` | `models/lstm_classifier.pt` | Trained LSTM checkpoint. |
+| `--lstm-vocab` | `data/model/lstm_vocab.json` | LSTM vocabulary/schema JSON. |
+| `--window-size` | `10.0` | Fixed window size in seconds. |
+| `--iforest-threshold` | `0.153295` | Raw IF anomaly-score threshold for calibrated IF alerts. |
+| `--lstm-threshold` | unset | Optional LSTM-only positive threshold. |
+| `--combined-threshold` | `0.310117` | Weighted combined-score alert threshold. |
+| `--lstm-weight` | `0.7` | Weight assigned to the LSTM probability; IF receives `1 - weight`. |
+| `--batch-size` | `256` | LSTM scoring batch size. |
+| `--device` | `auto` | Scoring device: `auto`, `cpu`, or `cuda`. |
+| `--alert-gap-seconds` | `5.0` | Max gap between positive sequences before starting a new alert interval. |
+| `--alert-top-events` | `8` | Number of representative events retained per alert interval. |
+| `--top-n` | `20` | Number of top ranked alerts printed to stdout. |
+
+### `src/aegis_triage_agent.py`
+
+`scan` subcommand:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--audit-log` | mutually exclusive, required | Raw `audit.log` path. |
+| `--parsed-events` | mutually exclusive, required | Parsed event CSV path. |
+| `--output-dir` | `data/scored/agent_<timestamp>` | Directory for scoring outputs and triage report. |
+| `--iforest-threshold` | `0.153295` | Raw IF anomaly-score threshold for calibrated IF alerts. |
+| `--combined-threshold` | `0.310117` | Weighted combined-score alert threshold. |
+| `--lstm-threshold` | unset | Optional LSTM-only positive threshold. |
+| `--lstm-weight` | `0.7` | Weight assigned to the LSTM probability; IF receives `1 - weight`. |
+| `--alert-gap-seconds` | `5.0` | Max gap between positive sequences before starting a new alert interval. |
+| `--alert-top-events` | `8` | Number of representative events retained per alert interval. |
+| `--report-top-items` | `5` | Number of intervals/items summarized in the Markdown report. |
+| `--device` | `auto` | Scoring device: `auto`, `cpu`, or `cuda`. |
+| `--top-n` | `20` | Number of top ranked alerts printed by the scoring layer. |
+
+`monitor` subcommand:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--audit-log` | `/var/log/audit/audit.log` | Reserved live audit-log path for the future monitor mode. |
+
 ## 1. Parse Raw Audit Logs
 
 Script:
@@ -288,7 +490,62 @@ Default evaluation policy:
 The threshold sweep is useful for choosing an anomaly-score cutoff, but current
 results should be treated as preliminary because the dataset is still small.
 
-## 8. Build LSTM Sequence Dataset
+## 8. Calibrate Isolation Forest Thresholds
+
+Script:
+
+```text
+src/calibrate_isolation_forest.py
+```
+
+After training on one benign baseline, score a separate held-out benign
+baseline. Then calibrate anomaly-score thresholds from that held-out benign
+distribution:
+
+```bash
+.venv/bin/python src/calibrate_isolation_forest.py \
+  --benign-scores data/model/baseline_5hour_iforest_scores.csv \
+  --eval-scores data/model/combined_manual_iforest_scores.csv \
+  --output data/model/isolation_forest_calibration.csv \
+  --benign-ranked-out data/model/baseline_5hour_iforest_ranked_windows.csv \
+  --eval-out data/model/isolation_forest_calibrated_eval.csv
+```
+
+Outputs:
+
+```text
+data/model/isolation_forest_calibration.csv
+data/model/baseline_5hour_iforest_ranked_windows.csv
+data/model/isolation_forest_calibrated_eval.csv
+```
+
+Default target false-positive rates:
+
+```text
+0.1%, 0.25%, 0.5%, 1%, 2%, 5%
+```
+
+Use this calibrated threshold instead of relying directly on the model's binary
+`iforest_is_anomaly` value. The held-out benign ranked file should be inspected
+to understand what benign activity is still scoring as unusual.
+
+Current 6-hour-train / 5-hour-held-out calibration:
+
+```text
+target FPR  threshold  held-out benign flagged  mixed malicious recall
+0.10%       0.202861   2/1221                   9/11
+0.25%       0.181690   4/1221                   10/11
+0.50%       0.153295   7/1221                   11/11
+1.00%       0.129019   13/1221                  11/11
+```
+
+The `0.153295` threshold is a reasonable current candidate for the offline
+proof of concept because it recovered all labeled malicious windows in the
+current mixed set while flagging about 0.57% of held-out benign windows.
+This value is now the default `--iforest-threshold` in `score_audit_log.py`,
+`evaluate_models.py`, and `aegis_triage_agent.py`.
+
+## 9. Build LSTM Sequence Dataset
 
 Script:
 
@@ -340,7 +597,7 @@ benign: 2327
 malicious: 505
 ```
 
-## 9. Train LSTM Classifier
+## 10. Train LSTM Classifier
 
 Script:
 
@@ -399,7 +656,7 @@ These results are useful as a first supervised baseline, but they should not be
 treated as final model quality until the dataset includes more independent
 benign and attack sessions.
 
-## 10. Evaluate LSTM Classifier
+## 11. Evaluate LSTM Classifier
 
 Script:
 
@@ -471,7 +728,7 @@ Recent error inspection found:
 These observations mean the current validation results are useful for pipeline
 debugging, but not a final estimate of generalization.
 
-## 11. Evaluate Combined Models
+## 12. Evaluate Combined Models
 
 Script:
 
@@ -504,6 +761,8 @@ Default behavior:
 - Joins each sequence to overlapping Isolation Forest windows by timestamp.
 - Compares LSTM-only, Isolation-Forest-only, OR, AND, and weighted-score
   decisions.
+- Uses `--iforest-threshold` against raw `iforest_anomaly_score` for calibrated
+  IF alert decisions.
 - Uses the max overlapping IF anomaly score for the weighted combined score.
 
 Current default-threshold results:
@@ -545,7 +804,7 @@ window flagged anomalous, so the binary Isolation Forest decision is not useful
 at this sequence granularity. The weighted score is more useful because it uses
 anomaly-score magnitude rather than only the binary IF flag.
 
-## 12. Score A New Audit Log
+## 13. Score A New Audit Log
 
 Script:
 
@@ -599,6 +858,7 @@ Current default scoring parameters:
 
 ```text
 --window-size 10
+--iforest-threshold 0.153295
 --combined-threshold 0.310117
 --lstm-weight 0.7
 --alert-gap-seconds 5
@@ -629,7 +889,7 @@ The baseline positives confirm that the current model artifacts are suitable for
 pipeline validation, but not yet production-quality. More benign telemetry,
 more repeated attack runs, and cleaner `ambiguous` labeling are still required.
 
-## 13. Run The Triage Agent
+## 14. Run The Triage Agent
 
 Script:
 
@@ -673,6 +933,8 @@ data/scored/agent_run/triage_report.md
 Agent behavior:
 
 - Runs the scoring pipeline.
+- Uses default `--iforest-threshold 0.153295` and
+  `--combined-threshold 0.310117` unless overridden.
 - Reads `alert_intervals.csv`.
 - Writes a machine-readable JSON summary.
 - Writes an analyst-facing Markdown triage report.

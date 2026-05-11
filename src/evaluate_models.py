@@ -16,6 +16,10 @@ import numpy as np
 import pandas as pd
 
 
+DEFAULT_IFOREST_THRESHOLD = 0.153295
+DEFAULT_COMBINED_THRESHOLD = 0.310117
+
+
 def safe_div(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else 0.0
 
@@ -100,7 +104,7 @@ def load_lstm(path: Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def load_iforest(path: Path) -> pd.DataFrame:
+def load_iforest(path: Path, iforest_threshold: float) -> pd.DataFrame:
     df = pd.read_csv(path)
     required = {
         "window_id",
@@ -121,6 +125,10 @@ def load_iforest(path: Path) -> pd.DataFrame:
     df["iforest_is_anomaly"] = (
         pd.to_numeric(df["iforest_is_anomaly"], errors="coerce").fillna(0).astype(int)
     )
+    df["iforest_threshold"] = iforest_threshold
+    df["iforest_threshold_alert"] = (
+        df["iforest_anomaly_score"] >= iforest_threshold
+    ).astype(int)
     df = df.dropna(subset=["window_start", "window_end", "iforest_anomaly_score"])
     return df.reset_index(drop=True)
 
@@ -142,6 +150,10 @@ def overlap_join(lstm: pd.DataFrame, iforest: pd.DataFrame) -> pd.DataFrame:
                     "iforest_max_anomaly_score": 0.0,
                     "iforest_mean_anomaly_score": 0.0,
                     "iforest_any_anomaly": 0,
+                    "iforest_model_any_anomaly": 0,
+                    "iforest_threshold": float(iforest["iforest_threshold"].iloc[0])
+                    if not iforest.empty
+                    else DEFAULT_IFOREST_THRESHOLD,
                     "iforest_overlapping_labels": "",
                 }
             )
@@ -152,7 +164,9 @@ def overlap_join(lstm: pd.DataFrame, iforest: pd.DataFrame) -> pd.DataFrame:
                     "iforest_window_ids": "|".join(overlaps["window_id"].astype(str).tolist()),
                     "iforest_max_anomaly_score": float(overlaps["iforest_anomaly_score"].max()),
                     "iforest_mean_anomaly_score": float(overlaps["iforest_anomaly_score"].mean()),
-                    "iforest_any_anomaly": int(overlaps["iforest_is_anomaly"].max()),
+                    "iforest_any_anomaly": int(overlaps["iforest_threshold_alert"].max()),
+                    "iforest_model_any_anomaly": int(overlaps["iforest_is_anomaly"].max()),
+                    "iforest_threshold": float(overlaps["iforest_threshold"].iloc[0]),
                     "iforest_overlapping_labels": "|".join(
                         sorted(set(overlaps["window_label"].astype(str).tolist()))
                     ),
@@ -241,7 +255,13 @@ def main() -> None:
         help="Output combined scores sorted by combined score descending.",
     )
     parser.add_argument("--lstm-threshold", type=float, default=0.5)
-    parser.add_argument("--combined-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--iforest-threshold",
+        type=float,
+        default=DEFAULT_IFOREST_THRESHOLD,
+        help="Raw IF anomaly-score threshold for calibrated IF alerts.",
+    )
+    parser.add_argument("--combined-threshold", type=float, default=DEFAULT_COMBINED_THRESHOLD)
     parser.add_argument(
         "--lstm-weight",
         type=float,
@@ -253,13 +273,15 @@ def main() -> None:
 
     if not 0.0 <= args.lstm_threshold <= 1.0:
         raise ValueError("--lstm-threshold must be between 0 and 1")
+    if args.iforest_threshold < 0:
+        raise ValueError("--iforest-threshold must be non-negative")
     if not 0.0 <= args.combined_threshold <= 1.0:
         raise ValueError("--combined-threshold must be between 0 and 1")
     if not 0.0 <= args.lstm_weight <= 1.0:
         raise ValueError("--lstm-weight must be between 0 and 1")
 
     lstm = load_lstm(Path(args.lstm))
-    iforest = load_iforest(Path(args.iforest))
+    iforest = load_iforest(Path(args.iforest), args.iforest_threshold)
     combined = overlap_join(lstm, iforest)
     combined = add_decisions(
         combined,
