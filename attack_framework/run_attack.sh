@@ -45,8 +45,19 @@ shell_quote() {
     printf "%q" "$1"
 }
 
+is_safe_remote_name() {
+    local name="$1"
+
+    [[ -n "$name" && "$name" != "." && "$name" != ".." ]] || return 1
+    [[ "$name" != *"/"* ]] || return 1
+    [[ ${#name} -le 80 ]] || return 1
+    [[ "$name" =~ ^\.?[A-Za-z0-9][A-Za-z0-9._-]{2,79}$ ]]
+}
+
 is_safe_remote_run_dir() {
     local path="$1"
+    local base
+    local name
 
     case "$path" in
     /tmp/aegis_* | /var/tmp/aegis_* | /dev/shm/aegis_* | \
@@ -54,10 +65,55 @@ is_safe_remote_run_dir() {
         /var/tmp/.system/aegis_* | /dev/shm/.runtime/aegis_*)
         return 0
         ;;
+    esac
+
+    case "$path" in
+    /tmp/* | /var/tmp/* | /dev/shm/*)
+        base="${path%/*}"
+        name="${path##*/}"
+        case "$base" in
+        /tmp | /var/tmp | /dev/shm)
+            is_safe_remote_name "$name"
+            return
+            ;;
+        esac
+        ;;
+    esac
+
+    return 1
+}
+
+remote_stage_base_from_run_dir() {
+    local path="$1"
+    local base="${path%/*}"
+
+    case "$base" in
+    /tmp | /var/tmp | /dev/shm | /tmp/.cache | /tmp/.config | /var/tmp/.system | /dev/shm/.runtime)
+        printf '%s\n' "$base"
+        ;;
     *)
         return 1
         ;;
     esac
+}
+
+random_remote_basename() {
+    local base
+    local suffix
+
+    base="$(pick_payload_basename 2>/dev/null || printf 'runtime')"
+    suffix="$(random_lower_string 6)"
+    printf '.%s-%s\n' "$base" "$suffix"
+}
+
+random_remote_artifact_name() {
+    local extension="$1"
+    local base
+    local suffix
+
+    base="$(pick_payload_basename 2>/dev/null || printf 'payload')"
+    suffix="$(random_lower_string 6)"
+    printf '.%s-%s.%s\n' "$base" "$suffix" "$extension"
 }
 
 emit_embedded_template_pool() {
@@ -67,7 +123,7 @@ emit_embedded_template_pool() {
 
     printf '%s="$(cat <<'\''__%s__'\''\n' "$var_name" "$var_name"
     sed -n '/^[[:space:]]*#/!{/^[[:space:]]*$/!p;}' "$template_file"
-    printf '__%s__\n)"\n' "$var_name"
+    printf '\n__%s__\n)"\n' "$var_name"
 }
 
 emit_bundled_framework() {
@@ -203,7 +259,12 @@ safe_remote_rm_file() {
     case "$path" in
     /tmp/aegis_* | /var/tmp/aegis_* | /dev/shm/aegis_* | \
         /tmp/.cache/aegis_* | /tmp/.config/aegis_* | \
-        /var/tmp/.system/aegis_* | /dev/shm/.runtime/aegis_*)
+        /var/tmp/.system/aegis_* | /dev/shm/.runtime/aegis_* | \
+        /tmp/* | /var/tmp/* | /dev/shm/*)
+        is_safe_remote_run_dir "$path" || {
+            warn "Refusing delivery cleanup for suspicious remote path: $path"
+            return 0
+        }
         if [[ -n "${USERNAME:-}" && -n "${PASSWORD:-}" ]]; then
             sshpass -p "$PASSWORD" \
                 ssh -o StrictHostKeyChecking=no \
@@ -319,7 +380,8 @@ prepare_remote_staging() {
 
     if [[ -n "${AEGIS_REMOTE_RUN_DIR:-}" ]]; then
         REMOTE_RUN_DIR="$AEGIS_REMOTE_RUN_DIR"
-        REMOTE_STAGE_BASE="${REMOTE_RUN_DIR%/aegis_${RUN_ID}}"
+        REMOTE_STAGE_BASE="$(remote_stage_base_from_run_dir "$REMOTE_RUN_DIR")" ||
+            fail "Unable to infer safe stage base from AEGIS_REMOTE_RUN_DIR: $REMOTE_RUN_DIR"
 
         is_safe_remote_run_dir "$REMOTE_RUN_DIR" ||
             fail "Refusing unsafe AEGIS_REMOTE_RUN_DIR: $REMOTE_RUN_DIR"
@@ -333,7 +395,7 @@ prepare_remote_staging() {
     while IFS= read -r candidate_base; do
         [[ -n "$candidate_base" ]] || continue
 
-        candidate_run_dir="${candidate_base%/}/aegis_${RUN_ID}"
+        candidate_run_dir="${candidate_base%/}/$(random_remote_basename)"
         is_safe_remote_run_dir "$candidate_run_dir" || continue
 
         case "$tried" in
@@ -590,9 +652,9 @@ ssh)
 
 scp_then_ssh)
 
-    RANDOM_UPLOAD_NAME="$(pick_template payload_names)"
+    RANDOM_UPLOAD_NAME="$(random_remote_artifact_name sh)"
 
-    REMOTE_PATH="${REMOTE_RUN_DIR}/${RANDOM_UPLOAD_NAME}.sh"
+    REMOTE_PATH="${REMOTE_RUN_DIR}/${RANDOM_UPLOAD_NAME}"
     BUNDLE_SCRIPT="$RUN_DIR/bundled_payload_scp.sh"
 
     record_metadata "remote_payload=$REMOTE_PATH"
@@ -750,7 +812,7 @@ root_session)
     BUNDLE_SCRIPT="$RUN_DIR/bundled_payload_root_session.sh"
     SESSION_COMMANDS="$RUN_DIR/root_session_commands.sh"
     SESSION_MARKER="__AEGIS_ROOT_SESSION_DONE_${RUN_ID}__"
-    SESSION_PAYLOAD_PATH="${REMOTE_RUN_DIR}/root_session_payload.sh"
+    SESSION_PAYLOAD_PATH="${REMOTE_RUN_DIR}/$(random_remote_artifact_name sh)"
 
     q_session_input="$(shell_quote "$SESSION_INPUT")"
     q_session_transcript="$(shell_quote "$SESSION_TRANSCRIPT")"
@@ -802,6 +864,7 @@ root_session)
     record_metadata "root_session_input=$SESSION_INPUT"
     record_metadata "root_session_transcript=$SESSION_TRANSCRIPT"
     record_metadata "root_session_marker=$SESSION_MARKER"
+    record_metadata "root_session_payload=$SESSION_PAYLOAD_PATH"
 
     log "Feeding payload into preserved root shell session"
 
@@ -864,11 +927,11 @@ suid_exec)
     REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR:-$REMOTE_RUN_DIR}"
 
     if ! is_safe_remote_run_dir "$REMOTE_STAGE_DIR"; then
-        REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR%/}/aegis_${RUN_ID}"
+        REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR%/}/$(random_remote_basename)"
     fi
 
-    REMOTE_PAYLOAD_PATH="${REMOTE_STAGE_DIR%/}/aegis_suid_exec_${RUN_ID}.sh"
-    REMOTE_SETUID_WRAPPER="${REMOTE_STAGE_DIR%/}/aegis_suid_exec_${RUN_ID}_setuid.py"
+    REMOTE_PAYLOAD_PATH="${REMOTE_STAGE_DIR%/}/$(random_remote_artifact_name sh)"
+    REMOTE_SETUID_WRAPPER="${REMOTE_STAGE_DIR%/}/$(random_remote_artifact_name py)"
 
     is_safe_remote_run_dir "$REMOTE_STAGE_DIR" ||
         fail "Refusing unsafe REMOTE_STAGE_DIR: $REMOTE_STAGE_DIR"

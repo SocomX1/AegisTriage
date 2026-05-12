@@ -114,3 +114,74 @@ Next highest-value steps:
     - Current combined evaluation is sequence-level.
     - The agent emits alert intervals, so interval-level precision/recall will better match actual analyst
         experience.
+
+For the next collection round, run:
+
+baseline generator duration: 90-120 minutes total
+runs per chain: 3
+gap between chains: 3-5 minutes
+gap between repeated runs of same chain: 5-8 minutes
+post-attack benign activity: 10-15 minutes
+
+Randomize the order of the chains after the first iteration of them. Manually undo the damage caused by vandalism chains, and mark that activity as benign.
+
+## Collecting Evaluation Data for IEEE Report
+
+1. Freeze the current models and thresholds
+    - Do not retrain during the report evaluation.
+    - Record:
+        - IF model file
+        - LSTM model file
+        - --iforest-threshold 0.153295
+        - --combined-threshold 0.310117
+        - audit rules / VM snapshot / baseline script version
+2. Collect a fresh held-out evaluation session
+    - Restore VM from snapshot.
+    - Start auditd.
+    - Start baseline workload.
+    - Run each chain at least once, preferably 2-3 times if time allows.
+    - Leave 3-5 min benign activity between chains.
+    - Manually restore nginx/DNS after destructive chains.
+    - Harvest:
+        - audit.log
+        - target_attack_windows.csv
+3. Deploy the agent and scan the audit.log file on the target VM
+
+    python3 src/aegis_triage_agent.py scan \
+    --audit-log /var/log/audit/audit.log \
+    --output-dir ~/aegis_eval_output \
+    --device cpu
+    
+4. Score the raw audit log with the frozen agent
+
+    .venv/bin/python src/score_audit_log.py \
+    --raw-log data/raw/audit_eval_round1.log \
+    --output-dir data/scored/eval_round1 \
+    --iforest-threshold 0.153295 \
+    --combined-threshold 0.310117 \
+    --device cpu
+
+5. Manually label the evaluation data
+    - Parse and anchor the eval log.
+    - Generate review slices.
+    - Label malicious/benign/ambiguous.
+    - Merge labels.
+    - This gives ground truth for metrics.
+6. Compute report metrics
+    Use current evaluators:
+    - IF window-level metrics: evaluate_isolation_forest.py
+    - LSTM sequence-level metrics: evaluate_lstm.py
+    - combined sequence-level metrics: evaluate_models.py
+
+For the report, collect:
+
+- IF held-out benign false-positive rate
+- IF malicious-window recall
+- LSTM precision / recall / F1 / ROC AUC
+- combined precision / recall / F1
+- number of alert intervals
+- examples of true positives, false positives, false negatives
+- runtime and output size for scoring a full log
+
+Simply scoring a new audit.log gives detections, but not performance metrics unless you also label enough
+of it to establish ground truth.
