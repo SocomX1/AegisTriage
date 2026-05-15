@@ -131,6 +131,8 @@ start_powershell_script_background() {
         ;;
     esac
 }
+# Start the controller-side FIFO-backed nc listener used by automated reverse
+# shell deliveries.
 start_bash_reverse_listener() {
     local run_dir="$1"
     local lport="${LPORT:?LPORT must be set for bash reverse shell listener}"
@@ -149,6 +151,7 @@ start_bash_reverse_listener() {
     echo "$!" >"$run_dir/listener.pid"
 }
 
+# Feed a scripted payload into a connected shell and terminate the session.
 feed_commands_to_fifo() {
     local fifo="$1"
     local commands_file="$2"
@@ -164,6 +167,8 @@ feed_commands_to_fifo() {
     } >"$fifo"
 }
 
+# Orchestrate reverse-shell delivery: start listener, trigger target callback,
+# then feed automated commands or hand control to the operator.
 run_reverse_shell() {
     local target="$1"
     local run_id="$2"
@@ -316,6 +321,8 @@ run_reverse_shell() {
     esac
 }
 
+# Orchestrate bind-shell delivery: trigger target listener, connect back from
+# the controller, and optionally feed scripted commands.
 run_bind_shell() {
     local target="$1"
     local run_id="$2"

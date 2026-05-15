@@ -81,6 +81,8 @@ def sort_key(row: Dict[str, str]) -> tuple[float, int]:
     return timestamp, event_id
 
 
+# Group anchored events by attack run and apply conservative default labels for
+# the manual review starting point.
 def collect_review_rows(input_path: Path) -> "OrderedDict[str, List[Dict[str, str]]]":
     grouped: "OrderedDict[str, List[Dict[str, str]]]" = OrderedDict()
 
@@ -129,6 +131,8 @@ def review_filename(run_id: str, rows: List[Dict[str, str]]) -> str:
     return f"{safe_filename(run_id)}__{safe_filename(payload)}.csv"
 
 
+# Write one compact CSV per attack run so manual labeling stays scoped and
+# reviewable.
 def write_review_slices(
     grouped: "OrderedDict[str, List[Dict[str, str]]]",
     output_dir: Path,

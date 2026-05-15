@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Initialize an isolated lab VM for Aegis audit telemetry collection.
+#
+# This script is intentionally standalone: the audit rules are embedded so it
+# can be copied to a fresh VM without requiring the full repository.
+
 set -euo pipefail
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -12,6 +17,7 @@ USAGE
     exit 0
 fi
 
+# Install the auditd rule set used for benign and malicious telemetry capture.
 write_audit_rules() {
     sudo tee /etc/audit/rules.d/audit.rules >/dev/null <<'AUDIT_RULES'
 ## Clear existing rules

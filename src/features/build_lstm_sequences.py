@@ -169,6 +169,8 @@ def load_events(path: Path, include_labels: Sequence[str]) -> pd.DataFrame:
     return df
 
 
+# Split events by run/session so training sequences do not cross unrelated
+# attack runs or collection sessions.
 def segment_events(df: pd.DataFrame, segment_column: str) -> List[Tuple[str, pd.DataFrame]]:
     if segment_column and segment_column in df.columns:
         segments: List[Tuple[str, pd.DataFrame]] = []
@@ -179,6 +181,8 @@ def segment_events(df: pd.DataFrame, segment_column: str) -> List[Tuple[str, pd.
     return [("all", df.copy())]
 
 
+# Build bounded categorical vocabularies, reserving IDs for padding and
+# previously unseen values at inference time.
 def collect_vocabs(df: pd.DataFrame, max_vocab_size: int) -> Dict[str, Dict[str, int]]:
     vocabs: Dict[str, Dict[str, int]] = {}
     for column in CATEGORICAL_COLUMNS:
@@ -203,6 +207,8 @@ def encode_categorical(group: pd.DataFrame, vocabs: Dict[str, Dict[str, int]]) -
     return encoded
 
 
+# Extract numeric event features for timing, identity, path volume, and simple
+# behavioral indicators.
 def numeric_frame(group: pd.DataFrame) -> pd.DataFrame:
     ordered = group.sort_values(["timestamp_float", "event_id_sort"], kind="stable").copy()
     deltas = ordered["timestamp_float"].diff().fillna(0.0).clip(lower=0.0, upper=60.0)
@@ -230,6 +236,8 @@ def numeric_frame(group: pd.DataFrame) -> pd.DataFrame:
     return numeric[NUMERIC_COLUMNS]
 
 
+# Require multiple malicious events before labeling a sequence positive, which
+# avoids turning mostly benign context into strong training examples.
 def sequence_label(labels: pd.Series, min_malicious_events: int) -> Tuple[str, int]:
     malicious_count = int((labels == "malicious").sum())
     if malicious_count >= min_malicious_events:
@@ -237,6 +245,8 @@ def sequence_label(labels: pd.Series, min_malicious_events: int) -> Tuple[str, i
     return "benign", 0
 
 
+# Construct sliding fixed-length sequences and a manifest that preserves the
+# original event/time ranges for later evaluation and explainability.
 def build_sequences(
     df: pd.DataFrame,
     vocabs: Dict[str, Dict[str, int]],

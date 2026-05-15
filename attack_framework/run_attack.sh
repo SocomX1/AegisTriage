@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Execute one payload through one delivery method and record run metadata.
+#
+# This is the main single-step attack orchestrator used by chain execution and
+# manual payload tests in the isolated lab environment.
+
 set -euo pipefail
 
 FRAMEWORK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -126,6 +131,7 @@ emit_embedded_template_pool() {
     printf '\n__%s__\n)"\n' "$var_name"
 }
 
+# Emit the minimal helper library bundle required by staged payload scripts.
 emit_bundled_framework() {
     cat "$FRAMEWORK_ROOT/lib/log_utils.sh"
     echo
@@ -191,6 +197,7 @@ pick_template() {
 EOF
 }
 
+# Copy payload-local shared assets into the run directory when they exist.
 emit_payload_embedded_assets() {
     case "$PAYLOAD_NAME" in
     persistence_tasks/systemd_watershell)
@@ -281,6 +288,8 @@ safe_remote_rm_file() {
     esac
 }
 
+# Remove delivery/staging artifacts while preserving payload-created artifacts
+# for explicit payload cleanup.
 run_delivery_cleanup() {
     if ! delivery_cleanup_enabled; then
         record_metadata "delivery_cleanup=disabled"
@@ -371,6 +380,7 @@ emit_remote_stage_candidates() {
     printf '%s\n' /tmp /var/tmp /dev/shm
 }
 
+# Select and create a writable remote staging directory for payload delivery.
 prepare_remote_staging() {
     local candidate_base
     local candidate_run_dir

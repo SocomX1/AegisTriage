@@ -70,6 +70,7 @@ require_privilege() {
     esac
 }
 
+# Run a command string with the privilege level declared by the payload config.
 run_priv() {
     local command_string="$1"
     local privilege="${PRIVILEGE:-user}"
@@ -103,6 +104,7 @@ run_priv() {
     esac
 }
 
+# Run cleanup/setup commands as root when available, falling back to sudo.
 run_as_root() {
     local command_string="$1"
 

@@ -40,6 +40,8 @@ def parse_float(value: str, field: str, row_num: int) -> float:
         raise ValueError(f"Bad {field} on row {row_num}: {value!r}") from exc
 
 
+# Load target-side attack windows and expand them with pre/post context buffers
+# used only to guide manual review.
 def load_windows(path: Path, buffer_before: float, buffer_after: float) -> List[Dict[str, object]]:
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -89,6 +91,8 @@ def load_windows(path: Path, buffer_before: float, buffer_after: float) -> List[
     return windows
 
 
+# Prefer exact attack-window matches, falling back to the nearest buffered
+# context window when an event is just outside the attack interval.
 def find_window(timestamp: float, windows: List[Dict[str, object]]) -> Optional[Dict[str, object]]:
     context_match: Optional[Dict[str, object]] = None
     context_distance: Optional[float] = None
@@ -125,6 +129,8 @@ def anchor_phase(timestamp: float, window: Dict[str, object]) -> str:
     return "attack_window"
 
 
+# Stream the parsed event CSV and add attack-window context columns without
+# treating those anchors as final labels.
 def attach_anchors(
     events_path: Path,
     windows_path: Path,

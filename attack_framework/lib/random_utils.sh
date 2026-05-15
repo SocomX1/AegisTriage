@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Random identifier helpers used to vary attack artifacts between runs.
+#
+# Randomized names reduce overfitting in audit-log datasets by avoiding the same
+# usernames, filenames, and staging paths on every execution.
+
 set -euo pipefail
 
 random_string() {

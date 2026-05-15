@@ -123,8 +123,9 @@ def load_syscall_map() -> Dict[str, str]:
     return syscall_map
 
 
+# Remove ausearch/aureport enrichment text so parsing sees canonical auditd
+# key-value fields.
 def strip_enriched_suffix(line: str) -> str:
-    # auditd enriched output appends decoded fields after ASCII group separator.
     return line.split("\x1d", 1)[0].split("^]", 1)[0]
 
 
@@ -150,6 +151,7 @@ def looks_like_hex(value: str) -> bool:
     )
 
 
+# Decode hex-encoded audit fields when they contain printable command/path text.
 def decode_hex_if_printable(value: str) -> str:
     if not looks_like_hex(value):
         return value
@@ -177,6 +179,8 @@ def clean_text(value: str, max_len: int = 500) -> str:
     return value
 
 
+# Reconstruct an argv-style command from EXECVE records while preserving the raw
+# proctitle fallback for sparse events.
 def extract_command(fields: Dict[str, str]) -> Tuple[str, str]:
     argc_raw = fields.get("argc", "")
     args: List[str] = []
@@ -223,6 +227,8 @@ def append_unique(values: List[str], value: str) -> None:
         values.append(value)
 
 
+# Group multi-record audit events by msg=audit(timestamp:event_id) and merge the
+# record types needed by labeling and feature extraction.
 def parse_audit_lines(lines: Iterable[str]) -> "OrderedDict[str, Dict[str, object]]":
     events: "OrderedDict[str, Dict[str, object]]" = OrderedDict()
     syscall_map = load_syscall_map()

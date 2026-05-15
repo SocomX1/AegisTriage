@@ -50,6 +50,8 @@ def numeric_features(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
     return features.apply(pd.to_numeric, errors="coerce")
 
 
+# Fit the preprocessing pipeline and Isolation Forest on benign-only windows,
+# then persist both the model and its feature-column manifest.
 def train_model(
     train_path: Path,
     model_path: Path,
@@ -95,6 +97,8 @@ def train_model(
     return model
 
 
+# Apply a trained model to another window dataset while preserving the input
+# metadata columns for later evaluation and review.
 def score_model(
     model: Pipeline,
     feature_columns_: List[str],

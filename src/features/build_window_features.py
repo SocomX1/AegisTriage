@@ -166,6 +166,8 @@ def contains_any(series: pd.Series, needles: Sequence[str]) -> int:
     return int(series.str.contains(pattern, regex=True, na=False).sum())
 
 
+# Assign a weak window label from event-level manual labels. Malicious labels
+# take precedence over ambiguous and benign labels.
 def window_label(labels: pd.Series) -> str:
     counts = labels.value_counts()
     if counts.get("malicious", 0) > 0:
@@ -179,6 +181,7 @@ def window_label(labels: pd.Series) -> str:
     return "unlabeled"
 
 
+# Add bounded categorical count features for high-signal audit fields.
 def build_count_features(
     group: pd.DataFrame,
     column: str,
@@ -196,6 +199,8 @@ def build_count_features(
     return {f"{prefix}_{name}_count": int(counts.get(name, 0)) for name in names}
 
 
+# Collect top categorical values from the training split so future datasets are
+# aligned to a stable feature schema.
 def collect_schema_values(df: pd.DataFrame, max_values: int) -> Dict[str, List[str]]:
     schema_values: Dict[str, List[str]] = {}
     for column in COUNT_PREFIXES:
@@ -205,6 +210,8 @@ def collect_schema_values(df: pd.DataFrame, max_values: int) -> Dict[str, List[s
     return schema_values
 
 
+# Aggregate each time window into model-ready numeric features plus label
+# summaries for later evaluation.
 def build_window_rows(
     df: pd.DataFrame,
     source: str,
@@ -292,6 +299,8 @@ def save_schema(path: Path, feature_columns: List[str], schema_values: Dict[str,
         f.write("\n")
 
 
+# Reindex a feature frame to the saved schema, adding missing training columns
+# and dropping unseen extra columns.
 def align_columns(df: pd.DataFrame, feature_columns: List[str]) -> pd.DataFrame:
     for column in feature_columns:
         if column not in df.columns:

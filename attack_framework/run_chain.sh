@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Execute a multi-step attack chain and coordinate deferred cleanup.
+#
+# Chains combine delivery methods and payloads into repeatable attack timelines
+# for auditd dataset generation.
+
 set -euo pipefail
 
 FRAMEWORK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,6 +115,7 @@ CAPABILITY_TARGET_ID=""
 CAPABILITY_DIR=""
 CAPABILITY_FILE=""
 
+# Write a reusable target-side root execution helper discovered during a chain.
 write_root_exec_capability() {
     local method="$1"
     local path="$2"
@@ -139,6 +145,7 @@ write_root_exec_capability() {
     record_metadata "persisted_root_exec_chroot_path=$chroot_path"
 }
 
+# Load previously discovered target capabilities for this chain run.
 load_target_capabilities() {
     local requested_target="$1"
 
@@ -186,6 +193,7 @@ load_target_capabilities() {
     fi
 }
 
+# Persist cleanup commands that must run after a shell-based chain completes.
 queue_deferred_shell_session_cleanup() {
     local step_index="$1"
     local session_input="$2"

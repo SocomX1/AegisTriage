@@ -135,6 +135,7 @@ remove_system_cron_d_file() {
     run_priv "rm -f '$cron_d_file'"
 }
 
+# Write a marked systemd unit so cleanup can verify ownership before removal.
 write_systemd_service_file() {
     local service_path="$1"
     local description="$2"

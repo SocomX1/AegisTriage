@@ -103,6 +103,8 @@ def parse_if_needed(raw_input: Path | None, parsed_input: Path | None, output_pa
     return output_path
 
 
+# Build IF windows with the training schema and score each window with the
+# persisted model. The raw anomaly score is kept for calibrated thresholding.
 def score_iforest(
     parsed_events: Path,
     window_output: Path,
@@ -154,6 +156,8 @@ def score_iforest(
     return scored
 
 
+# Normalize parsed events into the same categorical/numeric columns that the
+# training sequence builder used.
 def prepare_lstm_events(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, dtype=str, keep_default_na=False)
     if "timestamp" not in df.columns or "event_id" not in df.columns:
@@ -176,6 +180,8 @@ def prepare_lstm_events(path: Path) -> pd.DataFrame:
     return df
 
 
+# Build overlapping fixed-length inference sequences without labels. Sequence
+# metadata keeps event/time ranges so scores can be joined back to IF windows.
 def build_lstm_inference_sequences(
     events: pd.DataFrame,
     vocabs: Dict[str, Dict[str, int]],
@@ -221,6 +227,8 @@ def build_lstm_inference_sequences(
     )
 
 
+# Load architecture parameters from the checkpoint so scoring does not rely on
+# hard-coded training dimensions.
 def load_lstm_model(model_path: Path, device: torch.device) -> Tuple[AuditLSTM, Dict[str, object]]:
     checkpoint = torch.load(model_path, map_location=device)
     config = checkpoint["model_config"]
@@ -237,6 +245,7 @@ def load_lstm_model(model_path: Path, device: torch.device) -> Tuple[AuditLSTM, 
     return model, checkpoint
 
 
+# Run batched LSTM inference and return one malicious probability per sequence.
 def score_lstm(
     parsed_events: Path,
     vocab_path: Path,
@@ -293,6 +302,8 @@ def score_lstm(
     return scored
 
 
+# Align LSTM sequence scores with overlapping IF windows and compute the
+# weighted combined score used for final alerting.
 def join_scores(
     lstm: pd.DataFrame,
     iforest: pd.DataFrame,
@@ -387,6 +398,7 @@ def events_for_interval(events: pd.DataFrame, start: float, end: float) -> pd.Da
     return events[(events["timestamp_num"] >= start) & (events["timestamp_num"] <= end)].copy()
 
 
+# Collapse adjacent positive sequences into analyst-facing alert intervals.
 def build_alert_intervals(
     combined: pd.DataFrame,
     parsed_events: Path,

@@ -120,6 +120,8 @@ def choose_device(requested: str) -> torch.device:
     return torch.device(requested)
 
 
+# Split by segment/run ID to reduce leakage between related attack sequences in
+# train and validation sets.
 def group_train_val_split(
     manifest: pd.DataFrame,
     y: np.ndarray,
@@ -191,6 +193,8 @@ def evaluate(
     return float(np.mean(losses)), metrics_from_probs(all_labels, all_probs, threshold), all_probs
 
 
+# Train with class weighting, gradient clipping, and early stopping on
+# validation F1 so the small attack class remains visible.
 def train(
     model: nn.Module,
     train_loader: DataLoader,

@@ -122,6 +122,8 @@ def metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
     }
 
 
+# Apply each benign-calibrated threshold to labeled evaluation windows so the
+# chosen operating point includes both FPR and recall/precision context.
 def evaluate_thresholds(thresholds: pd.DataFrame, eval_df: pd.DataFrame) -> pd.DataFrame:
     y_true = eval_df["y_true"].to_numpy()
     rows = []

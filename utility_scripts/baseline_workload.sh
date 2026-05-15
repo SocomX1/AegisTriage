@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Generate repeatable benign Linux activity for auditd baseline collection.
+#
+# The workload intentionally mixes file, service, package, process, and shell
+# activity so model training sees realistic defender/admin behavior.
+
 set -euo pipefail
 trap 'echo "[!] Error on line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -84,6 +89,7 @@ should_stop() {
     [[ -f "$STOP_FILE" ]]
 }
 
+# Create the directory tree used by a single synthetic work session.
 ensure_cycle_dirs() {
     local cycle="$1"
     local project_root doc_root download_root scratch_root log_root archive_root
@@ -208,6 +214,7 @@ tmp_name() {
     pick_one "session_${cycle}_${i}_$RANDOM.tmp" "cache_${cycle}_${i}_$RANDOM.dat" "report_${cycle}_${i}_$RANDOM.tmp" "work_${cycle}_${i}_$RANDOM.swap"
 }
 
+# Simulate normal file creation, edits, reads, copies, and archiving.
 file_activity() {
     local cycle="$1"
     ensure_cycle_dirs "$cycle"
@@ -231,6 +238,7 @@ file_activity() {
     think
 }
 
+# Produce benign script execution and interpreter telemetry.
 script_activity() {
     local cycle="$1"
     ensure_cycle_dirs "$cycle"
@@ -628,6 +636,7 @@ network_diagnostics_activity() {
     think
 }
 
+# Generate realistic package-manager and repository-inspection commands.
 package_activity() {
     local cycle="$1"
     ensure_cycle_dirs "$cycle"
@@ -909,6 +918,7 @@ finish_run() {
     echo "end=$(date -Is)" >> "$WORK/run_manifest.txt"
 }
 
+# Run one randomized activity cycle and write per-cycle metadata.
 run_cycle() {
     local cycle="$1"
     local profile
@@ -966,6 +976,7 @@ run_cycle() {
     done < <(shuffle_phases "${phases[@]}")
 }
 
+# Main background loop. It stops cleanly when the stop file appears.
 run_workload() {
     local mode="$1"
     local cycles="${2:-}"
@@ -995,6 +1006,7 @@ run_workload() {
     echo "[+] Baseline workload complete"
 }
 
+# Start a detached workload process and persist its PID/state files.
 start_workload() {
     mkdir -p "$STATE_DIR"
 

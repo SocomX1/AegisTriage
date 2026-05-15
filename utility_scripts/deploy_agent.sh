@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Package and deploy the trained Aegis scoring runtime to a target VM.
+#
+# The archive includes only the files required for offline target-side scoring:
+# source code, requirements, trained models, and model schemas.
+
 set -euo pipefail
 
 usage() {
@@ -69,6 +74,7 @@ for path in "${REQUIRED_PATHS[@]}"; do
     fi
 done
 
+# Remove the temporary local deployment archive after the transfer completes.
 cleanup() {
     rm -f "$LOCAL_ARCHIVE"
 }

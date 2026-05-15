@@ -133,6 +133,8 @@ def load_iforest(path: Path, iforest_threshold: float) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+# Join each LSTM sequence to all IF windows that overlap its time range, then
+# keep summary IF scores for combined evaluation.
 def overlap_join(lstm: pd.DataFrame, iforest: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, sequence in lstm.iterrows():
@@ -179,6 +181,7 @@ def overlap_join(lstm: pd.DataFrame, iforest: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
+# Compute individual detector decisions and the weighted combined alert score.
 def add_decisions(
     df: pd.DataFrame,
     lstm_threshold: float,

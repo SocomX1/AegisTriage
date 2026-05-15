@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Build target-side attack-window CSVs from attack framework run metadata.
+#
+# These windows are review anchors for labeling, not final ground truth.
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +33,7 @@ csv_escape() {
     printf '"%s"' "$value"
 }
 
+# Metadata files can contain repeated keys; use the last value as authoritative.
 metadata_get_last() {
     local key="$1"
     local path="$2"

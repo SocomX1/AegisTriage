@@ -119,6 +119,8 @@ ensure_ssh_dir() {
     echo "$ssh_dir"
 }
 
+# Append a marked SSH key entry so cleanup can remove only framework-created
+# persistence.
 write_authorized_key_entry() {
     local username="$1"
     local key_entry="$2"
@@ -146,6 +148,7 @@ write_authorized_key_entry() {
     echo "$authorized_keys"
 }
 
+# Remove marker-delimited SSH key entries without touching legitimate user keys.
 remove_framework_authorized_key_entries() {
     local username="$1"
     local marker="${2:-# aegis_framework_key}"

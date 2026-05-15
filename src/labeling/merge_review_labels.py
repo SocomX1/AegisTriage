@@ -28,6 +28,8 @@ def label_key(row: Dict[str, str]) -> LabelKey:
     return row.get("attack_run_id", ""), row.get("event_id", "")
 
 
+# Load reviewed per-run labels and fail fast on conflicting labels for the same
+# attack_run_id/event_id pair.
 def load_review_labels(review_dir: Path) -> Dict[LabelKey, Dict[str, str]]:
     labels: Dict[LabelKey, Dict[str, str]] = {}
     conflicts = 0
@@ -77,6 +79,8 @@ def load_review_labels(review_dir: Path) -> Dict[LabelKey, Dict[str, str]]:
     return labels
 
 
+# Apply manual labels back onto the anchored master event CSV while preserving
+# unlabeled rows for downstream context.
 def merge_labels(
     input_path: Path,
     review_dir: Path,

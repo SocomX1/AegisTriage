@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Harvest rotated auditd logs from a target VM over SSH.
+#
+# The output is a single combined log ordered from oldest to newest so the
+# parser sees the same event order the target produced.
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -82,6 +87,7 @@ ssh \
     "REMOTE_AUDIT_DIR=$(printf '%q' "$REMOTE_AUDIT_DIR") bash -s" > "$tmp_output" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
+# Read plain or gzip-compressed audit logs, using sudo when needed.
 read_log_file() {
     local path="$1"
 
@@ -103,6 +109,7 @@ read_log_file() {
     esac
 }
 
+# Return audit.log files sorted later by modification time.
 list_audit_files() {
     if [[ -r "$REMOTE_AUDIT_DIR" && -x "$REMOTE_AUDIT_DIR" ]]; then
         find "$REMOTE_AUDIT_DIR" -maxdepth 1 -type f -name 'audit.log*' \
