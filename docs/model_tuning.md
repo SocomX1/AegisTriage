@@ -17,6 +17,13 @@ or call Python directly:
 .venv/bin/python ...
 ```
 
+Every pipeline script exposes its current CLI flags through `--help`. For
+example:
+
+```bash
+.venv/bin/python src/scoring/score_audit_log.py --help
+```
+
 ## Goals
 
 Aegis currently uses two model families:
@@ -482,6 +489,74 @@ Alert intervals should be evaluated as analyst-facing output. Sequence-level
 metrics are useful for training, but interval quality is what matters for the
 agent.
 
+## Generated Artifacts
+
+A complete tuning round usually creates these intermediate and final artifacts.
+Names may vary by collection round, but keep the same categories so later
+thresholds and reports can be traced back to the data that produced them.
+
+Raw and labeled data:
+
+```text
+data/raw/audit_baseline_train.log
+data/raw/audit_baseline_holdout.log
+data/raw/audit_combined.log
+data/raw/target_attack_windows.csv
+data/processed/baseline_train_events.csv
+data/processed/baseline_holdout_events.csv
+data/processed/combined_events.csv
+data/processed/combined_events_anchored.csv
+data/processed/combined_events_manual.csv
+data/review/*.csv
+```
+
+Isolation Forest artifacts:
+
+```text
+data/model/window_feature_schema.json
+data/model/isolation_forest_baseline_train_windows.csv
+data/model/isolation_forest_baseline_holdout_windows.csv
+data/model/combined_manual_windows.csv
+data/model/combined_manual_iforest_scores.csv
+data/model/baseline_holdout_iforest_scores.csv
+data/model/baseline_holdout_iforest_ranked_windows.csv
+data/model/isolation_forest_calibration.csv
+data/model/isolation_forest_calibrated_eval.csv
+models/isolation_forest.joblib
+models/isolation_forest_features.json
+```
+
+LSTM and combined-model artifacts:
+
+```text
+data/model/lstm_sequences.npz
+data/model/lstm_vocab.json
+data/model/lstm_sequence_manifest.csv
+data/model/lstm_metrics.json
+data/model/lstm_validation_predictions.csv
+data/model/lstm_threshold_sweep.csv
+data/model/lstm_ranked_predictions.csv
+data/model/lstm_validation_errors.csv
+data/model/combined_model_scores.csv
+data/model/combined_model_threshold_sweep.csv
+data/model/combined_model_ranked_alerts.csv
+models/lstm_classifier.pt
+```
+
+Scoring and agent outputs:
+
+```text
+data/scored/<run_id>/parsed_events.csv
+data/scored/<run_id>/iforest_windows.csv
+data/scored/<run_id>/iforest_scores.csv
+data/scored/<run_id>/lstm_sequence_scores.csv
+data/scored/<run_id>/combined_sequence_scores.csv
+data/scored/<run_id>/ranked_alerts.csv
+data/scored/<run_id>/alert_intervals.csv
+data/scored/<run_id>/triage_summary.json
+data/scored/<run_id>/triage_report.md
+```
+
 ## Update Agent Defaults
 
 When a new IF threshold or combined threshold is selected, update defaults in:
@@ -490,7 +565,6 @@ When a new IF threshold or combined threshold is selected, update defaults in:
 src/scoring/score_audit_log.py
 src/evaluation/evaluate_models.py
 src/agent/aegis_triage_agent.py
-docs/ML_PIPELINE.md
 docs/model_tuning.md
 ```
 

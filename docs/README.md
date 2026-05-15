@@ -6,12 +6,6 @@ Aegis: Agentic AI for detecting malicious file system activity on Linux systems
 
 Team Members: Alexander Zucker, Aleksandre Zambakhidze, Shane Kirchoff
 
-## Setup Instructions
-
-### Scoring Existing Audit Logs
-
-### Deploying the Agent
-
 ## Problem Statement
 
 Our project addresses the difficulty of identifying malicious activity on Linux systems that are under attack by a stealthy threat actor. In a compromised environment, distinguishing malicious behavior from the enormous volume of normal file system activity is extremely challenging, yet it is critical for determining the scope of an intrusion and identifying persistence mechanisms that could allow re-compromise.
@@ -19,57 +13,148 @@ Our project addresses the difficulty of identifying malicious activity on Linux 
 This problem matters because without reliable detection, defenders cannot contain an attacker or prevent them from regaining access after initial remediation. This project is intended to be used by 
 cybersecurity students participating in live cyberdefense competitions, where teams must defend intentionally vulnerable Windows/Linux VMs against an active red team. Rather than positioning this as an industry-grade commercial tool, we are building a lightweight, easily deployable agent that helps students learn to detect and respond to malicious activity in realistic adversarial scenarios.
 
-## AI Functions to Be Developed
+## Usage Instructions
 
-Our system focuses on machine learning and neural network-based anomaly detection, with the following capabilities:
+### Scoring Existing Audit Logs
 
-Log sequence modeling using an LSTM neural network trained on ordered sequences of file system events, capturing behavioral patterns such as privilege escalation and lateral movement.
-Unsupervised anomaly detection using an Isolation Forest baseline that flags statistical outliers without needing labeled training data.
-Event classification and scoring that assigns each event (or window of events) an anomaly rating, confidence level, brief reasoning, and potentially a recommended action.
-Log parsing and feature extraction via Drain parsing, windowing, and normalization to convert raw log text into structured inputs the models can consume.
+Use this workflow when you already have an `audit.log` file, or when you want
+to pull audit logs from a target VM and score them locally.
 
-## Use of Agentic AI
+1. Clone the repository.
 
-Agentic AI is central to how our system operates on a live compromised host rather than as a passive classifier:
+    ```bash
+    git clone <repo-url>
+    cd AegisTriage
+    ```
 
-Autonomous monitoring loop: The agent continuously ingests file system log events, parses them, and makes classification decisions without requiring a human to invoke it per event.
-Multi-step reasoning over context: Because anomalies often only make sense across a sequence of events, the agent reasons over a window of recent activity rather than scoring events in isolation.
-Coordination of multiple AI modules: The Isolation Forest and LSTM serve complementary roles — the agent uses both to cross-check flagged activity and reduce false positives before escalating.
-Decision-making with feedback: Events flagged with high confidence are surfaced for human review, and the agent can recommend actions (e.g., investigate process, check persistence location), effectively triaging activity for a student defender rather than dumping raw logs on them.
+2. Create and activate a Python virtual environment.
 
-## Dataset
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ```
 
+3. Confirm the trained model artifacts are present.
 
+    ```bash
+    ls models/isolation_forest.joblib \
+       models/isolation_forest_features.json \
+       models/lstm_classifier.pt \
+       data/model/window_feature_schema.json \
+       data/model/lstm_vocab.json
+    ```
 
-## Evaluation Plan
+4. If you already have an audit log, place it under `data/raw/`.
 
-Because of severe class imbalance between normal and anomalous log windows, accuracy is not a meaningful metric — a trivial model that labels everything "normal" would score very high while also being useless.
+    ```bash
+    mkdir -p data/raw data/scored
+    cp /path/to/audit.log data/raw/audit_eval.log
+    ```
 
-Primary metrics:
+5. Score the local audit log.
 
-Precision, Recall, and F1 Score: our main evaluation criteria, with F1 used for model tuning on the validation set.
-ROC-AUC: for a threshold-independent view of performance.
-False Positive Rate:  critical because a tool that floods a defender with false alarms during a competition is worse than no tool at all.
+    ```bash
+    .venv/bin/python src/scoring/score_audit_log.py \
+      --raw-log data/raw/audit_eval.log \
+      --output-dir data/scored/audit_eval \
+      --device cpu
+    ```
 
-Baseline comparison: Isolation Forest serves as the baseline. It requires no labels, trains in minutes on CPU, and gives us a solid benchmark. The LSTM is our primary model and must meaningfully outperform the baseline on F1 and FPR to be considered successful.
+6. Review the scoring outputs.
 
-## Current Progress
+    ```bash
+    ls data/scored/audit_eval
+    less data/scored/audit_eval/alert_intervals.csv
+    less data/scored/audit_eval/ranked_alerts.csv
+    ```
 
-Dataset acquired: BGL dataset downloaded and its structure confirmed.
+7. To harvest audit logs from a target system instead, make sure SSH key
+   authentication works for the target VM, then run:
 
-Pipeline designed: End-to-end preprocessing pipeline (Drain parsing → windowing → feature extraction → normalization) has been fully designed.
+    ```bash
+    SSH_USER=analyst utility_scripts/harvest_audit_logs.sh \
+      <target-host-or-ip> \
+      data/raw/audit_harvested.log
+    ```
 
-Drain parser implementation in progress: Work is underway to convert raw log lines into stable event templates.
+8. Score the harvested log.
 
-Model architecture defined: Both the Isolation Forest baseline (count-vector input) and LSTM (sequence input) have their input formats and training approaches specified.
+    ```bash
+    .venv/bin/python src/scoring/score_audit_log.py \
+      --raw-log data/raw/audit_harvested.log \
+      --output-dir data/scored/audit_harvested \
+      --device cpu
+    ```
 
-No critical blockers encountered so far.
+### Deploying the Agent
 
-## Next-Step Plan
+Use this workflow when you want the target VM to run the Aegis agent locally
+against its own audit logs.
+
+1. From the local repository, confirm the trained model artifacts are present.
+
+    ```bash
+    ls models/isolation_forest.joblib \
+       models/isolation_forest_features.json \
+       models/lstm_classifier.pt \
+       data/model/window_feature_schema.json \
+       data/model/lstm_vocab.json
+    ```
+
+2. Deploy the agent bundle to the target system.
+
+    ```bash
+    utility_scripts/deploy_agent.sh \
+      analyst@<target-host-or-ip>:/home/analyst/aegis-triage-agent
+    ```
+
+3. SSH into the target system.
+
+    ```bash
+    ssh analyst@<target-host-or-ip>
+    cd /home/analyst/aegis-triage-agent
+    ```
+
+4. Copy the current audit log to a readable temporary location.
+
+    ```bash
+    sudo cp /var/log/audit/audit.log /tmp/audit.log
+    sudo chown "$(id -un):$(id -gn)" /tmp/audit.log
+    ```
+
+5. Run the deployed agent against the target audit log.
+
+    ```bash
+    .venv/bin/python src/agent/aegis_triage_agent.py scan \
+      --audit-log /tmp/audit.log \
+      --output-dir data/scored/vm_scan \
+      --device cpu
+    ```
+
+6. Review the generated triage report on the target.
+
+    ```bash
+    less data/scored/vm_scan/triage_report.md
+    less data/scored/vm_scan/triage_summary.json
+    ```
+
+7. Optional: copy the agent output back to the local machine for report review.
+
+    ```bash
+    scp -r analyst@<target-host-or-ip>:/home/analyst/aegis-triage-agent/data/scored/vm_scan \
+      data/scored/
+    ```
+
+### Training and Evaluating Models
+
+See `docs/model_tuning.md`.
+
+## Current Progress and Next Steps
 
 The IF is now doing its intended job well enough for the POC: trained on benign-only data, calibrated against held-out benign, and using an explicit threshold. The current 0.153295 threshold gives a reasonable operating point: low benign FPR with full malicious-window recall on the current labeled mixed set. More IF work now is likely to give diminishing returns compared to improving the supervised side.
 
-Next highest-value steps:
+### Next Steps to Improve Model Performance
 
 1. Collect more attack telemetry
     - This is the biggest weakness right now.
@@ -91,17 +176,16 @@ Next highest-value steps:
     - The agent emits alert intervals, so interval-level precision/recall will better match actual analyst
         experience.
 
-For the next collection round, run:
+For the next collection round, use the following guidelines:
 
-baseline generator duration: 90-120 minutes total
-runs per chain: 3
-gap between chains: 3-5 minutes
-gap between repeated runs of same chain: 5-8 minutes
-post-attack benign activity: 10-15 minutes
+- Baseline generator duration: 90-120 minutes total
+- Runs per chain: 3
+- Gap between chains: 3-5 minutes
+- Gap between repeated runs of same chain: 5-8 minutes
+- Post-attack benign activity: 10-15 minutes
+- Randomize the order of the chains after the first iteration of them. Manually undo the damage caused by vandalism chains, and mark that activity as benign.
 
-Randomize the order of the chains after the first iteration of them. Manually undo the damage caused by vandalism chains, and mark that activity as benign.
-
-## Collecting Evaluation Data for IEEE Report
+### Collecting Evaluation Data
 
 1. Freeze the current models and thresholds
     - Do not retrain during the report evaluation.
@@ -149,7 +233,7 @@ Randomize the order of the chains after the first iteration of them. Manually un
     - LSTM sequence-level metrics: evaluate_lstm.py
     - combined sequence-level metrics: evaluate_models.py
 
-For the report, collect:
+Collect the following data:
 
 - IF held-out benign false-positive rate
 - IF malicious-window recall
