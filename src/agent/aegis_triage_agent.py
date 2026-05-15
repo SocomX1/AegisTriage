@@ -20,8 +20,8 @@ from typing import Dict, List
 import pandas as pd
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCORE_SCRIPT = PROJECT_ROOT / "src" / "score_audit_log.py"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCORE_SCRIPT = PROJECT_ROOT / "src" / "scoring" / "score_audit_log.py"
 DEFAULT_IFOREST_THRESHOLD = 0.153295
 DEFAULT_COMBINED_THRESHOLD = 0.310117
 

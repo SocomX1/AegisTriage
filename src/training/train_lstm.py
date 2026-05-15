@@ -3,7 +3,7 @@
 Train a lightweight LSTM classifier on audit event sequences.
 
 The model consumes categorical token IDs plus numeric event features generated
-by src/build_lstm_sequences.py. CUDA is used automatically when available.
+by src/features/build_lstm_sequences.py. CUDA is used automatically when available.
 """
 
 from __future__ import annotations

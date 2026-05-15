@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FRAMEWORK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$FRAMEWORK_ROOT/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FRAMEWORK_ROOT="$REPO_ROOT/attack_framework"
 
 SSH_USER="${SSH_USER:-analyst}"
 REMOTE_AUDIT_DIR="${REMOTE_AUDIT_DIR:-/var/log/audit}"

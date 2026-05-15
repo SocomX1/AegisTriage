@@ -22,7 +22,17 @@ Purpose:
 - `audit_baseline.log`: benign-only audit telemetry.
 - `audit_combined.log`: baseline activity plus attack activity.
 - `target_attack_windows.csv`: target-side attack start/end timestamps generated
-  from attack framework run metadata.
+  from attack framework run metadata by `utility_scripts/mark_attack_windows.sh`.
+
+Useful collection utilities:
+
+```bash
+utility_scripts/baseline_workload.sh start
+utility_scripts/harvest_audit_logs.sh <target-host-or-ip> data/raw/audit_combined.log
+utility_scripts/mark_attack_windows.sh data/raw/target_attack_windows.csv
+```
+
+`mark_attack_windows.sh` replaces the older consolidate target windows helper name.
 
 Use the project virtual environment:
 
@@ -41,14 +51,14 @@ or call it directly:
 The sections below show normal pipeline usage. This reference lists every
 Python CLI flag currently exposed by the pipeline scripts.
 
-### `src/parse_audit_events.py`
+### `src/labeling/parse_audit_events.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--input` | required | Raw `audit.log` path to parse. |
 | `--output` | required | Parsed event CSV output path. |
 
-### `src/attach_attack_anchors.py`
+### `src/labeling/attach_attack_anchors.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -58,14 +68,14 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--buffer-before` | `3.0` | Seconds of pre-attack context to attach. |
 | `--buffer-after` | `3.0` | Seconds of post-attack context to attach. |
 
-### `src/generate_review_slices.py`
+### `src/labeling/generate_review_slices.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--input` | `data/processed/combined_events_anchored.csv` | Anchored combined event CSV. |
 | `--output-dir` | `data/review` | Directory for per-attack manual review CSVs. |
 
-### `src/merge_review_labels.py`
+### `src/labeling/merge_review_labels.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -73,7 +83,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--review-dir` | `data/review` | Directory containing manually labeled review CSVs. |
 | `--output` | `data/processed/combined_events_manual.csv` | Merged manual-label event CSV. |
 
-### `src/build_window_features.py`
+### `src/features/build_window_features.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -85,7 +95,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--schema-in` | unset | Existing window feature schema JSON to apply. |
 | `--schema-out` | unset | Path where a new window feature schema JSON should be written. |
 
-### `src/train_isolation_forest.py`
+### `src/training/train_isolation_forest.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -99,7 +109,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--random-state` | `42` | Random seed. |
 | `--n-jobs` | `-1` | CPU workers for scikit-learn; `-1` uses all cores. |
 
-### `src/evaluate_isolation_forest.py`
+### `src/evaluation/evaluate_isolation_forest.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -111,7 +121,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--exclude-labels` | `ambiguous` | Comma-separated labels excluded from evaluation. |
 | `--top-n` | `15` | Number of top anomaly rows printed to stdout. |
 
-### `src/calibrate_isolation_forest.py`
+### `src/calibration/calibrate_isolation_forest.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -126,7 +136,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--exclude-labels` | `ambiguous` | Comma-separated labels excluded from optional evaluation. |
 | `--top-n` | `20` | Number of threshold rows printed to stdout. |
 
-### `src/build_lstm_sequences.py`
+### `src/features/build_lstm_sequences.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -141,7 +151,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--include-labels` | `benign,malicious` | Comma-separated manual labels included in the dataset. |
 | `--min-malicious-events` | `5` | Minimum malicious events required for a sequence to be labeled malicious. |
 
-### `src/train_lstm.py`
+### `src/training/train_lstm.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -164,7 +174,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--patience` | `8` | Early-stopping patience in epochs. |
 | `--random-state` | `42` | Random seed. |
 
-### `src/evaluate_lstm.py`
+### `src/evaluation/evaluate_lstm.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -175,7 +185,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--threshold` | `0.5` | Probability threshold for default metrics. |
 | `--top-n` | `15` | Number of top ranked predictions printed to stdout. |
 
-### `src/evaluate_models.py`
+### `src/evaluation/evaluate_models.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -190,7 +200,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--lstm-weight` | `0.7` | Weight assigned to the LSTM probability; IF receives `1 - weight`. |
 | `--top-n` | `15` | Number of top combined rows printed to stdout. |
 
-### `src/score_audit_log.py`
+### `src/scoring/score_audit_log.py`
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -213,7 +223,7 @@ Python CLI flag currently exposed by the pipeline scripts.
 | `--alert-top-events` | `8` | Number of representative events retained per alert interval. |
 | `--top-n` | `20` | Number of top ranked alerts printed to stdout. |
 
-### `src/aegis_triage_agent.py`
+### `src/agent/aegis_triage_agent.py`
 
 `scan` subcommand:
 
@@ -243,13 +253,13 @@ Python CLI flag currently exposed by the pipeline scripts.
 Script:
 
 ```text
-src/parse_audit_events.py
+src/labeling/parse_audit_events.py
 ```
 
 Parse baseline telemetry:
 
 ```bash
-.venv/bin/python src/parse_audit_events.py \
+.venv/bin/python src/labeling/parse_audit_events.py \
   --input data/raw/audit_baseline.log \
   --output data/processed/baseline_events.csv
 ```
@@ -257,7 +267,7 @@ Parse baseline telemetry:
 Parse combined telemetry:
 
 ```bash
-.venv/bin/python src/parse_audit_events.py \
+.venv/bin/python src/labeling/parse_audit_events.py \
   --input data/raw/audit_combined.log \
   --output data/processed/combined_events.csv
 ```
@@ -277,13 +287,13 @@ audit event.
 Script:
 
 ```text
-src/attach_attack_anchors.py
+src/labeling/attach_attack_anchors.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/attach_attack_anchors.py \
+.venv/bin/python src/labeling/attach_attack_anchors.py \
   --events data/processed/combined_events.csv \
   --windows data/raw/target_attack_windows.csv \
   --output data/processed/combined_events_anchored.csv
@@ -320,13 +330,13 @@ Exact attack-window matches take precedence over neighboring context buffers.
 Script:
 
 ```text
-src/generate_review_slices.py
+src/labeling/generate_review_slices.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/generate_review_slices.py \
+.venv/bin/python src/labeling/generate_review_slices.py \
   --input data/processed/combined_events_anchored.csv \
   --output-dir data/review
 ```
@@ -357,13 +367,13 @@ Default behavior:
 Script:
 
 ```text
-src/merge_review_labels.py
+src/labeling/merge_review_labels.py
 ```
 
 Run after manually editing `data/review/*.csv`:
 
 ```bash
-.venv/bin/python src/merge_review_labels.py \
+.venv/bin/python src/labeling/merge_review_labels.py \
   --input data/processed/combined_events_anchored.csv \
   --review-dir data/review \
   --output data/processed/combined_events_manual.csv
@@ -389,13 +399,13 @@ Recommended label usage:
 Script:
 
 ```text
-src/build_window_features.py
+src/features/build_window_features.py
 ```
 
 Build baseline-only windows and save the feature schema:
 
 ```bash
-.venv/bin/python src/build_window_features.py \
+.venv/bin/python src/features/build_window_features.py \
   --input data/processed/baseline_events.csv \
   --output data/model/isolation_forest_baseline_windows.csv \
   --source baseline \
@@ -406,7 +416,7 @@ Build baseline-only windows and save the feature schema:
 Build combined/manual windows using the same schema:
 
 ```bash
-.venv/bin/python src/build_window_features.py \
+.venv/bin/python src/features/build_window_features.py \
   --input data/processed/combined_events_manual.csv \
   --output data/model/combined_manual_windows.csv \
   --source combined_manual \
@@ -429,13 +439,13 @@ Current windowing uses fixed 10-second buckets. Empty windows are skipped.
 Script:
 
 ```text
-src/train_isolation_forest.py
+src/training/train_isolation_forest.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/train_isolation_forest.py \
+.venv/bin/python src/training/train_isolation_forest.py \
   --train data/model/isolation_forest_baseline_windows.csv \
   --score data/model/combined_manual_windows.csv \
   --model-out models/isolation_forest.joblib \
@@ -462,13 +472,13 @@ Notes:
 Script:
 
 ```text
-src/evaluate_isolation_forest.py
+src/evaluation/evaluate_isolation_forest.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/evaluate_isolation_forest.py \
+.venv/bin/python src/evaluation/evaluate_isolation_forest.py \
   --scores data/model/combined_manual_iforest_scores.csv \
   --sweep-out data/model/isolation_forest_threshold_sweep.csv \
   --ranked-out data/model/isolation_forest_ranked_windows.csv
@@ -495,7 +505,7 @@ results should be treated as preliminary because the dataset is still small.
 Script:
 
 ```text
-src/calibrate_isolation_forest.py
+src/calibration/calibrate_isolation_forest.py
 ```
 
 After training on one benign baseline, score a separate held-out benign
@@ -503,7 +513,7 @@ baseline. Then calibrate anomaly-score thresholds from that held-out benign
 distribution:
 
 ```bash
-.venv/bin/python src/calibrate_isolation_forest.py \
+.venv/bin/python src/calibration/calibrate_isolation_forest.py \
   --benign-scores data/model/baseline_5hour_iforest_scores.csv \
   --eval-scores data/model/combined_manual_iforest_scores.csv \
   --output data/model/isolation_forest_calibration.csv \
@@ -550,13 +560,13 @@ This value is now the default `--iforest-threshold` in `score_audit_log.py`,
 Script:
 
 ```text
-src/build_lstm_sequences.py
+src/features/build_lstm_sequences.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/build_lstm_sequences.py \
+.venv/bin/python src/features/build_lstm_sequences.py \
   --input data/processed/combined_events_manual.csv \
   --output data/model/lstm_sequences.npz \
   --vocab-out data/model/lstm_vocab.json \
@@ -602,13 +612,13 @@ malicious: 505
 Script:
 
 ```text
-src/train_lstm.py
+src/training/train_lstm.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/train_lstm.py \
+.venv/bin/python src/training/train_lstm.py \
   --dataset data/model/lstm_sequences.npz \
   --vocab data/model/lstm_vocab.json \
   --manifest data/model/lstm_sequence_manifest.csv \
@@ -661,13 +671,13 @@ benign and attack sessions.
 Script:
 
 ```text
-src/evaluate_lstm.py
+src/evaluation/evaluate_lstm.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/evaluate_lstm.py \
+.venv/bin/python src/evaluation/evaluate_lstm.py \
   --predictions data/model/lstm_validation_predictions.csv \
   --sweep-out data/model/lstm_threshold_sweep.csv \
   --ranked-out data/model/lstm_ranked_predictions.csv \
@@ -733,13 +743,13 @@ debugging, but not a final estimate of generalization.
 Script:
 
 ```text
-src/evaluate_models.py
+src/evaluation/evaluate_models.py
 ```
 
 Run:
 
 ```bash
-.venv/bin/python src/evaluate_models.py \
+.venv/bin/python src/evaluation/evaluate_models.py \
   --lstm data/model/lstm_ranked_predictions.csv \
   --iforest data/model/combined_manual_iforest_scores.csv \
   --scores-out data/model/combined_model_scores.csv \
@@ -809,13 +819,13 @@ anomaly-score magnitude rather than only the binary IF flag.
 Script:
 
 ```text
-src/score_audit_log.py
+src/scoring/score_audit_log.py
 ```
 
 Score a raw `audit.log`:
 
 ```bash
-.venv/bin/python src/score_audit_log.py \
+.venv/bin/python src/scoring/score_audit_log.py \
   --raw-log data/raw/audit_combined.log \
   --output-dir data/scored/latest
 ```
@@ -823,7 +833,7 @@ Score a raw `audit.log`:
 Score an already parsed event CSV:
 
 ```bash
-.venv/bin/python src/score_audit_log.py \
+.venv/bin/python src/scoring/score_audit_log.py \
   --parsed-events data/processed/combined_events.csv \
   --output-dir data/scored/latest
 ```
@@ -894,7 +904,7 @@ more repeated attack runs, and cleaner `ambiguous` labeling are still required.
 Script:
 
 ```text
-src/aegis_triage_agent.py
+src/agent/aegis_triage_agent.py
 ```
 
 The proof-of-concept agent currently implements batch scan mode and reserves a
@@ -903,7 +913,7 @@ future live monitor entry point.
 Scan a raw `audit.log`:
 
 ```bash
-.venv/bin/python src/aegis_triage_agent.py scan \
+.venv/bin/python src/agent/aegis_triage_agent.py scan \
   --audit-log data/raw/audit_combined.log \
   --output-dir data/scored/agent_run
 ```
@@ -911,7 +921,7 @@ Scan a raw `audit.log`:
 Scan an already parsed event CSV:
 
 ```bash
-.venv/bin/python src/aegis_triage_agent.py scan \
+.venv/bin/python src/agent/aegis_triage_agent.py scan \
   --parsed-events data/processed/combined_events.csv \
   --output-dir data/scored/agent_run
 ```
@@ -943,7 +953,7 @@ Agent behavior:
 Smoke-test command:
 
 ```bash
-.venv/bin/python src/aegis_triage_agent.py scan \
+.venv/bin/python src/agent/aegis_triage_agent.py scan \
   --parsed-events data/processed/combined_events.csv \
   --output-dir data/scored/agent_smoke \
   --top-n 3 \
@@ -1092,8 +1102,8 @@ emit alert with explanation fields
 
 The production agent should remain CPU-only and lightweight.
 
-The current `src/score_audit_log.py` script is the first offline version of this
-flow, and `src/aegis_triage_agent.py` wraps it in a proof-of-concept agent CLI.
+The current `src/scoring/score_audit_log.py` script is the first offline version of this
+flow, and `src/agent/aegis_triage_agent.py` wraps it in a proof-of-concept agent CLI.
 Future work should refine the interval explanation fields, tune alert thresholds
 after more telemetry is collected, and implement the reserved live `monitor`
 mode.

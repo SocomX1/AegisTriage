@@ -1,35 +1,23 @@
 ## Project Title
 
-Agentic AI for Detecting Malicious File System Activity on Linux Systems
+Aegis: Agentic AI for detecting malicious file system activity on Linux systems
 
 ## Team Information
 
-Team Name: Aegis Team Members: Alexander Zucker, Aleksandre Zambakhidze, Shane Kirchoff
+Team Members: Alexander Zucker, Aleksandre Zambakhidze, Shane Kirchoff
 
 ## Setup Instructions
 
-After cloning the repo:
-- python3 -m venv venv
-- source venv/bin/activate
-- pip install -r requirements.txt
-- mkdir -p data/raw data/parsed data/processed src models results
-- cd data/raw && wget https://zenodo.org/records/8196385/files/BGL.zip?download=1 && unzip BGL.zip* && rm BGL.zip* README.md
+### Scoring Existing Audit Logs
 
-Processing BGL log data:
-- python src/inspect_bgl.py --input data/raw/BGL.log
-- python src/drain_parse.py
-- python src/deleak_events.py --lower-threshold -1 --upper-threshold 0.99
-- python src/window_events.py --input data/processed/bgl_structured_deleaked.csv --output data/processed/bgl_windows_deleaked.csv
-- python src/build_features.py --input data/processed/bgl_windows_deleaked.csv --output data/processed/bgl_features_deleaked.csv
-- python src/train_isolation_forest.py --input data/processed/bgl_features_deleaked.csv
-- python src/train_lstm.py --input data/processed/bgl_windows_deleaked.csv --model-output models/lstm_event_classifier_deleaked.pt --vocab-output models/event_vocab_deleaked.json --predictions-output data/processed/lstm_predictions_deleaked.csv --epochs 10 --batch-size 512 --hidden-size 128 --embedding-dim 64 --dropout 0.3
-- python src/sanity_check_lstm.py
+### Deploying the Agent
 
-## Problem to Solve
+## Problem Statement
 
 Our project addresses the difficulty of identifying malicious activity on Linux systems that are under attack by a stealthy threat actor. In a compromised environment, distinguishing malicious behavior from the enormous volume of normal file system activity is extremely challenging, yet it is critical for determining the scope of an intrusion and identifying persistence mechanisms that could allow re-compromise.
 
-This problem matters because without reliable detection, defenders cannot contain an attacker or prevent them from regaining access after initial remediation. Our target beneficiaries are cybersecurity students participating in live cyberdefense competitions, where teams must defend intentionally vulnerable Windows/Linux VMs against an active red team. Rather than positioning this as an industry-grade commercial tool, we are building a lightweight, easily deployable agent that helps students learn to detect and respond to malicious activity in realistic adversarial scenarios.
+This problem matters because without reliable detection, defenders cannot contain an attacker or prevent them from regaining access after initial remediation. This project is intended to be used by 
+cybersecurity students participating in live cyberdefense competitions, where teams must defend intentionally vulnerable Windows/Linux VMs against an active red team. Rather than positioning this as an industry-grade commercial tool, we are building a lightweight, easily deployable agent that helps students learn to detect and respond to malicious activity in realistic adversarial scenarios.
 
 ## AI Functions to Be Developed
 
@@ -51,21 +39,11 @@ Decision-making with feedback: Events flagged with high confidence are surfaced 
 
 ## Dataset
 
-Dataset name: BGL (Blue Gene/L supercomputer system logs)
 
-Source: https://github.com/logpai/loghub/blob/master/BGL/README.md
-
-Modality: Text (system log events)
-
-Size: ~4.7 million log entries
-
-Preprocessing plan: Drain parsing to convert raw log lines into event templates (e.g., E104) → windowing into sequences that can capture multi-step attack patterns → feature extraction (event count vectors for Isolation Forest, ordered event ID sequences for LSTM) → normalization.
-
-For example, a parsed window might look like [E12, E12, E45, E9, E104, E9], which the LSTM consumes as a sequence while the Isolation Forest consumes it as counts (E12_count = 2, unique_events = 4, etc.).
 
 ## Evaluation Plan
 
-Because of severe class imbalance between normal and anomalous log windows, accuracy is not a meaningful metric — a trivial model that labels everything "normal" would score very high while being operationally useless.
+Because of severe class imbalance between normal and anomalous log windows, accuracy is not a meaningful metric — a trivial model that labels everything "normal" would score very high while also being useless.
 
 Primary metrics:
 
@@ -74,8 +52,6 @@ ROC-AUC: for a threshold-independent view of performance.
 False Positive Rate:  critical because a tool that floods a defender with false alarms during a competition is worse than no tool at all.
 
 Baseline comparison: Isolation Forest serves as the baseline. It requires no labels, trains in minutes on CPU, and gives us a solid benchmark. The LSTM is our primary model and must meaningfully outperform the baseline on F1 and FPR to be considered successful.
-
-Success criteria: The project is successful if the LSTM achieves higher F1 and lower FPR than the Isolation Forest baseline on held-out BGL data, and if the final agent is lightweight enough to run on a competition VM without noticeable performance impact.
 
 ## Current Progress
 
@@ -147,14 +123,14 @@ Randomize the order of the chains after the first iteration of them. Manually un
         - target_attack_windows.csv
 3. Deploy the agent and scan the audit.log file on the target VM
 
-    python3 src/aegis_triage_agent.py scan \
+    python3 src/agent/aegis_triage_agent.py scan \
     --audit-log /var/log/audit/audit.log \
     --output-dir ~/aegis_eval_output \
     --device cpu
     
 4. Score the raw audit log with the frozen agent
 
-    .venv/bin/python src/score_audit_log.py \
+    .venv/bin/python src/scoring/score_audit_log.py \
     --raw-log data/raw/audit_eval_round1.log \
     --output-dir data/scored/eval_round1 \
     --iforest-threshold 0.153295 \

@@ -4,10 +4,10 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage:
-  ./deploy_agent.sh user@host:/remote/path
+  ./utility_scripts/deploy_agent.sh user@host:/remote/path
 
 Example:
-  ./deploy_agent.sh analyst@192.168.52.144:/home/analyst/aegis-triage-agent
+  ./utility_scripts/deploy_agent.sh analyst@192.168.52.144:/home/analyst/aegis-triage-agent
 
 What it does:
   1. Creates a tar.gz archive with the POC agent runtime files.
@@ -45,7 +45,8 @@ if [[ -z "$REMOTE" || -z "$REMOTE_DIR" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 ARCHIVE_NAME="aegis-triage-agent-poc.tgz"
 LOCAL_ARCHIVE="$(mktemp "/tmp/${ARCHIVE_NAME%.tgz}.XXXXXX.tgz")"
@@ -101,7 +102,7 @@ Run a scan on the target with:
   cd '$REMOTE_DIR'
   sudo cp /var/log/audit/audit.log /tmp/audit.log
   sudo chown \$(id -un):\$(id -gn) /tmp/audit.log
-  .venv/bin/python src/aegis_triage_agent.py scan --audit-log /tmp/audit.log --output-dir data/scored/vm_scan
+  .venv/bin/python src/agent/aegis_triage_agent.py scan --audit-log /tmp/audit.log --output-dir data/scored/vm_scan
 
 Report paths:
   $REMOTE_DIR/data/scored/vm_scan/triage_report.md

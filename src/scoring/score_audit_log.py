@@ -10,9 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from collections import Counter
 from typing import Dict, Iterable, List, Tuple
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import joblib
 import numpy as np
@@ -20,9 +25,9 @@ import pandas as pd
 import torch
 from torch import nn
 
-import build_window_features
-import parse_audit_events
-from build_lstm_sequences import (
+from src.features import build_window_features
+from src.labeling import parse_audit_events
+from src.features.build_lstm_sequences import (
     CATEGORICAL_COLUMNS,
     NUMERIC_COLUMNS,
     encode_categorical,
@@ -32,8 +37,8 @@ from build_lstm_sequences import (
     path_category,
     to_numeric,
 )
-from train_isolation_forest import numeric_features
-from train_lstm import AuditLSTM, choose_device
+from src.training.train_isolation_forest import numeric_features
+from src.training.train_lstm import AuditLSTM, choose_device
 
 
 REQUIRED_EVENT_COLUMNS = [

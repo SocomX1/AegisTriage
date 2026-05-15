@@ -1,3 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat <<'USAGE'
+Usage:
+  utility_scripts/vm_init.sh
+
+Initializes an Ubuntu/Debian lab VM for Aegis audit telemetry collection.
+Run this inside an isolated VM before collecting benign or attack telemetry.
+USAGE
+    exit 0
+fi
+
+write_audit_rules() {
+    sudo tee /etc/audit/rules.d/audit.rules >/dev/null <<'AUDIT_RULES'
 ## Clear existing rules
 -D
 
@@ -110,3 +126,83 @@
 
 ## Make logs immutable (optional for later)
 # -e 2
+AUDIT_RULES
+    sudo chmod 0640 /etc/audit/rules.d/audit.rules
+}
+
+echo "[+] Updating packages"
+sudo apt update
+sudo apt upgrade -y
+
+echo "[+] Installing collection and lab packages"
+sudo apt install -y \
+    auditd \
+    audispd-plugins \
+    git \
+    curl \
+    vim \
+    htop \
+    netcat-openbsd \
+    ncat \
+    socat \
+    python3 \
+    python3-pip \
+    python3-venv \
+    nginx \
+    openssh-server \
+    cron
+
+echo "[+] Enabling algif_aead if available"
+if [[ -f /etc/modprobe.d/disable-algif_aead.conf ]]; then
+    sudo mv /etc/modprobe.d/disable-algif_aead.conf /etc/modprobe.d/disable-algif_aead.conf.disabled
+fi
+sudo modprobe algif_aead || echo "[!] algif_aead could not be loaded on this kernel; continuing"
+lsmod | grep -q '^algif_aead' && echo "[+] algif_aead loaded" || true
+
+echo "[+] Configuring auditd log rotation"
+sudo sed -i \
+    -e 's/^max_log_file[[:space:]]*=.*/max_log_file = 200/' \
+    -e 's/^num_logs[[:space:]]*=.*/num_logs = 10/' \
+    -e 's/^max_log_file_action[[:space:]]*=.*/max_log_file_action = ROTATE/' \
+    /etc/audit/auditd.conf
+
+echo "[+] Installing Aegis audit rules"
+sudo rm -f /etc/audit/rules.d/*.rules
+write_audit_rules
+
+echo "[+] Preparing root SSH directory"
+sudo mkdir -p /root/.ssh
+sudo chmod 700 /root/.ssh
+
+echo "[+] Enabling services"
+sudo systemctl enable auditd nginx cron ssh
+sudo systemctl restart auditd
+sudo systemctl start nginx cron ssh
+sudo augenrules --load
+sudo systemctl restart auditd
+
+echo "[+] Creating analyst user if needed"
+if ! id analyst >/dev/null 2>&1; then
+    sudo adduser --disabled-password --gecos "" analyst
+fi
+sudo usermod -aG sudo analyst
+echo 'analyst ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/analyst >/dev/null
+sudo chmod 440 /etc/sudoers.d/analyst
+
+echo "[+] Clearing current audit log for a clean collection start"
+if [[ -f /var/log/audit/audit.log ]]; then
+    sudo truncate -s 0 /var/log/audit/audit.log || true
+fi
+sudo systemctl restart auditd
+
+echo "[+] Verifying audit status and tmp_activity rule"
+sudo auditctl -s
+touch /tmp/aegis_vm_init_testfile
+sudo ausearch -k tmp_activity >/dev/null || true
+rm -f /tmp/aegis_vm_init_testfile
+
+cat <<'EOF'
+[+] VM initialization complete.
+
+Reminder: take a snapshot of the VM now before collecting telemetry or running attack chains.
+EOF

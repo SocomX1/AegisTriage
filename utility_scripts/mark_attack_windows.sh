@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FRAMEWORK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$FRAMEWORK_ROOT/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FRAMEWORK_ROOT="$REPO_ROOT/attack_framework"
 RUNS_DIR="${RUNS_DIR:-$FRAMEWORK_ROOT/runs}"
 OUTPUT_PATH="${OUTPUT_PATH:-$REPO_ROOT/data/raw/target_attack_windows.csv}"
 
@@ -124,4 +125,4 @@ rm -f "$tmp_rows"
 row_count="$(( $(wc -l < "$OUTPUT_PATH" | tr -d '[:space:]') - 1 ))"
 
 echo "[+] Wrote $OUTPUT_PATH"
-echo "[+] Consolidated $row_count target timestamp windows"
+echo "[+] Marked $row_count target timestamp windows"

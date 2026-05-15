@@ -85,6 +85,15 @@ after the first full pass when practical. If destructive chains alter services
 such as nginx or DNS, manually restore from known-good backups and record the
 restore interval for labeling context.
 
+Useful collection commands:
+
+```bash
+utility_scripts/baseline_workload.sh start
+utility_scripts/baseline_workload.sh stop
+utility_scripts/harvest_audit_logs.sh <target-host-or-ip> data/raw/audit_combined.log
+utility_scripts/mark_attack_windows.sh data/raw/target_attack_windows.csv
+```
+
 Prefer framework-driven chains for the next tuning round because they produce
 target-side timestamp metadata. Manual shell or SSH attacks are valuable later,
 but only after adding explicit manual marker windows.
@@ -116,15 +125,15 @@ Large raw logs and generated CSVs should stay out of git.
 Parse each raw audit log:
 
 ```bash
-.venv/bin/python src/parse_audit_events.py \
+.venv/bin/python src/labeling/parse_audit_events.py \
   --input data/raw/audit_baseline_train.log \
   --output data/processed/baseline_train_events.csv
 
-.venv/bin/python src/parse_audit_events.py \
+.venv/bin/python src/labeling/parse_audit_events.py \
   --input data/raw/audit_baseline_holdout.log \
   --output data/processed/baseline_holdout_events.csv
 
-.venv/bin/python src/parse_audit_events.py \
+.venv/bin/python src/labeling/parse_audit_events.py \
   --input data/raw/audit_combined.log \
   --output data/processed/combined_events.csv
 ```
@@ -140,7 +149,7 @@ Sanity checks:
 Attach attack-window anchors to the combined event CSV:
 
 ```bash
-.venv/bin/python src/attach_attack_anchors.py \
+.venv/bin/python src/labeling/attach_attack_anchors.py \
   --events data/processed/combined_events.csv \
   --windows data/raw/target_attack_windows.csv \
   --output data/processed/combined_events_anchored.csv \
@@ -156,7 +165,7 @@ labeling, not automatic ground truth.
 Generate per-attack review CSVs:
 
 ```bash
-.venv/bin/python src/generate_review_slices.py \
+.venv/bin/python src/labeling/generate_review_slices.py \
   --input data/processed/combined_events_anchored.csv \
   --output-dir data/review
 ```
@@ -178,7 +187,7 @@ After labeling `data/review/*.csv`, merge the labels back into the master event
 file:
 
 ```bash
-.venv/bin/python src/merge_review_labels.py \
+.venv/bin/python src/labeling/merge_review_labels.py \
   --input data/processed/combined_events_anchored.csv \
   --review-dir data/review \
   --output data/processed/combined_events_manual.csv
@@ -195,7 +204,7 @@ Use the same feature schema for every window file in one experiment. Create the
 schema from the benign training baseline:
 
 ```bash
-.venv/bin/python src/build_window_features.py \
+.venv/bin/python src/features/build_window_features.py \
   --input data/processed/baseline_train_events.csv \
   --output data/model/isolation_forest_baseline_train_windows.csv \
   --source baseline_train \
@@ -206,7 +215,7 @@ schema from the benign training baseline:
 Build held-out benign windows with that schema:
 
 ```bash
-.venv/bin/python src/build_window_features.py \
+.venv/bin/python src/features/build_window_features.py \
   --input data/processed/baseline_holdout_events.csv \
   --output data/model/isolation_forest_baseline_holdout_windows.csv \
   --source baseline_holdout \
@@ -217,7 +226,7 @@ Build held-out benign windows with that schema:
 Build combined labeled windows with the same schema:
 
 ```bash
-.venv/bin/python src/build_window_features.py \
+.venv/bin/python src/features/build_window_features.py \
   --input data/processed/combined_events_manual.csv \
   --output data/model/combined_manual_windows.csv \
   --source combined_manual \
@@ -233,7 +242,7 @@ experiment. Changing window size requires rebuilding all downstream artifacts.
 Train only on benign-only windows:
 
 ```bash
-.venv/bin/python src/train_isolation_forest.py \
+.venv/bin/python src/training/train_isolation_forest.py \
   --train data/model/isolation_forest_baseline_train_windows.csv \
   --score data/model/combined_manual_windows.csv \
   --model-out models/isolation_forest.joblib \
@@ -247,7 +256,7 @@ Train only on benign-only windows:
 Then score held-out benign using the same trained setup:
 
 ```bash
-.venv/bin/python src/train_isolation_forest.py \
+.venv/bin/python src/training/train_isolation_forest.py \
   --train data/model/isolation_forest_baseline_train_windows.csv \
   --score data/model/isolation_forest_baseline_holdout_windows.csv \
   --model-out models/isolation_forest.joblib \
@@ -267,7 +276,7 @@ important output is the held-out benign score distribution, not the native
 Calibrate raw IF anomaly-score thresholds from held-out benign:
 
 ```bash
-.venv/bin/python src/calibrate_isolation_forest.py \
+.venv/bin/python src/calibration/calibrate_isolation_forest.py \
   --benign-scores data/model/baseline_holdout_iforest_scores.csv \
   --eval-scores data/model/combined_manual_iforest_scores.csv \
   --output data/model/isolation_forest_calibration.csv \
@@ -313,7 +322,7 @@ keep the calibrated threshold and move on.
 Build the supervised sequence dataset from manually labeled events:
 
 ```bash
-.venv/bin/python src/build_lstm_sequences.py \
+.venv/bin/python src/features/build_lstm_sequences.py \
   --input data/processed/combined_events_manual.csv \
   --output data/model/lstm_sequences.npz \
   --vocab-out data/model/lstm_vocab.json \
@@ -343,7 +352,7 @@ mostly benign.
 Train the LSTM:
 
 ```bash
-.venv/bin/python src/train_lstm.py \
+.venv/bin/python src/training/train_lstm.py \
   --dataset data/model/lstm_sequences.npz \
   --vocab data/model/lstm_vocab.json \
   --manifest data/model/lstm_sequence_manifest.csv \
@@ -373,7 +382,7 @@ treated as CPU-first.
 Evaluate validation predictions:
 
 ```bash
-.venv/bin/python src/evaluate_lstm.py \
+.venv/bin/python src/evaluation/evaluate_lstm.py \
   --predictions data/model/lstm_validation_predictions.csv \
   --sweep-out data/model/lstm_threshold_sweep.csv \
   --ranked-out data/model/lstm_ranked_predictions.csv \
@@ -405,7 +414,7 @@ are caused by noisy labels, relabel and rebuild sequences.
 Evaluate LSTM and IF together:
 
 ```bash
-.venv/bin/python src/evaluate_models.py \
+.venv/bin/python src/evaluation/evaluate_models.py \
   --lstm data/model/lstm_ranked_predictions.csv \
   --iforest data/model/combined_manual_iforest_scores.csv \
   --scores-out data/model/combined_model_scores.csv \
@@ -439,7 +448,7 @@ changing `--lstm-weight`.
 Run the offline scorer with selected thresholds:
 
 ```bash
-.venv/bin/python src/score_audit_log.py \
+.venv/bin/python src/scoring/score_audit_log.py \
   --parsed-events data/processed/combined_events.csv \
   --output-dir data/scored/tuning_check \
   --iforest-threshold 0.153295 \
@@ -452,7 +461,7 @@ Run the offline scorer with selected thresholds:
 For a raw audit log:
 
 ```bash
-.venv/bin/python src/score_audit_log.py \
+.venv/bin/python src/scoring/score_audit_log.py \
   --raw-log data/raw/audit_combined.log \
   --output-dir data/scored/tuning_check \
   --iforest-threshold 0.153295 \
@@ -478,9 +487,9 @@ agent.
 When a new IF threshold or combined threshold is selected, update defaults in:
 
 ```text
-src/score_audit_log.py
-src/evaluate_models.py
-src/aegis_triage_agent.py
+src/scoring/score_audit_log.py
+src/evaluation/evaluate_models.py
+src/agent/aegis_triage_agent.py
 docs/ML_PIPELINE.md
 docs/model_tuning.md
 ```
@@ -495,7 +504,7 @@ DEFAULT_COMBINED_THRESHOLD = 0.310117
 Then smoke-test the agent:
 
 ```bash
-.venv/bin/python src/aegis_triage_agent.py scan \
+.venv/bin/python src/agent/aegis_triage_agent.py scan \
   --parsed-events data/processed/combined_events.csv \
   --output-dir data/scored/agent_tuning_smoke \
   --device cpu \
@@ -550,4 +559,3 @@ Before treating a tuning round as better than the previous one:
 - Agent alert intervals are coherent and traceable to representative commands,
   executables, syscalls, keys, and paths.
 - All new thresholds are documented and reflected in defaults if accepted.
-
